@@ -341,7 +341,7 @@ const MarginCalculator = () => {
         <CTableDataCell>
           <CInputGroup size="sm">
             <CFormInput
-              type="number"
+              type="text"
               value={product.supplyPrice}
               onChange={(e) => updateNaverProduct(product.id, 'supplyPrice', e.target.value)}
               onWheel={preventScrollOnNumberInput}
@@ -353,7 +353,7 @@ const MarginCalculator = () => {
         <CTableDataCell>
           <CInputGroup size="sm">
             <CFormInput
-              type="number"
+              type="text"
               value={product.commission}
               onChange={(e) => updateNaverProduct(product.id, 'commission', e.target.value)}
               onWheel={preventScrollOnNumberInput}
@@ -366,7 +366,7 @@ const MarginCalculator = () => {
         <CTableDataCell>
           <CInputGroup size="sm">
             <CFormInput
-              type="number"
+              type="text"
               value={product.shippingFee}
               onChange={(e) => updateNaverProduct(product.id, 'shippingFee', e.target.value)}
               onWheel={preventScrollOnNumberInput}
@@ -416,7 +416,7 @@ const MarginCalculator = () => {
         <CTableDataCell>
           <CInputGroup size="sm">
             <CFormInput
-              type="number"
+              type="text"
               value={product.commission}
               onChange={(e) => updateCoupangProduct(product.id, 'commission', e.target.value)}
               onWheel={preventScrollOnNumberInput}

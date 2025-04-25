@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "commerse-interface",
+    "commerse-interface": "commerse-interface",
+    "main": "commerse-interface"
+  },
+  "targets": {},
+  "etags": {
+    "coupangnaver": {
+      "extensionInstances": {}
+    },
+    "commerse-interface": {
+      "extensionInstances": {}
+    }
+  }
+}

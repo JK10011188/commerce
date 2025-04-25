@@ -1,0 +1,318 @@
+/* 계정 테이블 스타일 */
+.account-table {
+  min-width: 800px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.account-table th {
+  font-weight: 600;
+  background-color: #f8f9fa;
+  border-bottom: 2px solid #dee2e6;
+  padding: 0.75rem;
+  vertical-align: middle;
+}
+
+.account-table td {
+  vertical-align: middle;
+  padding: 0.75rem;
+  border-top: 1px solid #dee2e6;
+}
+
+.account-table .badge {
+  font-weight: 500;
+  padding: 0.35em 0.65em;
+  font-size: 0.85em;
+}
+
+/* 계정 관리 카드 스타일 */
+.account-settings .card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 1rem 1.25rem;
+}
+
+.account-settings .card-body {
+  padding: 1.5rem;
+}
+
+/* 섹션 스타일 */
+.account-settings .section-header {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.account-settings .section-title {
+  color: #3c4b64;
+  font-weight: 600;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* 폼 스타일 */
+.account-settings .form-label {
+  font-weight: 500;
+  color: #495057;
+}
+
+.account-settings .form-text {
+  font-size: 0.8rem;
+  color: #768192;
+  margin-top: 0.25rem;
+}
+
+/* 입력 필드 스타일 */
+.account-settings .input-group-text {
+  background-color: #ebedef;
+  border: 1px solid #d8dbe0;
+  color: #5c6873;
+}
+
+.account-settings .form-control:focus {
+  border-color: #9da5b1;
+  box-shadow: 0 0 0 0.2rem rgba(50, 31, 219, 0.15);
+}
+
+/* API 테스트 결과 스타일 */
+.account-settings .text-success {
+  color: #2eb85c !important;
+  font-weight: 500;
+}
+
+.account-settings .text-danger {
+  color: #e55353 !important;
+  font-weight: 500;
+}
+
+/* 버튼 스타일 */
+.account-settings .btn-primary {
+  background-color: #321fdb;
+  border-color: #321fdb;
+}
+
+.account-settings .btn-primary:hover {
+  background-color: #2a1ab9;
+  border-color: #2a1ab9;
+}
+
+.account-settings .btn-secondary {
+  background-color: #ced2d8;
+  border-color: #ced2d8;
+  color: #3c4b64;
+}
+
+.account-settings .btn-info {
+  background-color: #39f;
+  border-color: #39f;
+}
+
+.account-settings .btn-danger {
+  background-color: #e55353;
+  border-color: #e55353;
+}
+
+/* 액션 버튼 스타일 */
+.account-settings .btn-ghost-info,
+.account-settings .btn-ghost-danger {
+  background-color: transparent;
+  color: inherit;
+}
+
+.account-settings .btn-ghost-info:hover {
+  background-color: rgba(50, 31, 219, 0.1);
+  color: #321fdb;
+}
+
+.account-settings .btn-ghost-danger:hover {
+  background-color: rgba(229, 83, 83, 0.1);
+  color: #e55353;
+}
+
+/* 로딩 상태 스타일 */
+.account-settings .spinner-border {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Secret Key 보기/숨기기 버튼 스타일 */
+.account-settings .input-group .btn-outline-secondary {
+  border-color: #d8dbe0;
+  color: #5c6873;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  margin-left: -1px;
+}
+
+.account-settings .input-group .btn-outline-secondary:hover {
+  background-color: #f0f3f5;
+  color: #343a40;
+}
+
+/* 비밀번호 필드 스타일 */
+.account-settings input[type="password"] {
+  font-family: monospace;
+  letter-spacing: 0.1em;
+}
+
+/* 테이블에서 긴 키 값 처리 */
+.account-settings .table td {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 빈 상태 스타일 */
+.account-settings .text-muted {
+  color: #768192 !important;
+}
+
+/* 반응형 조정 */
+@media (max-width: 768px) {
+  .account-settings .table-responsive {
+    border: 0;
+  }
+  
+  .account-settings .section-header {
+    flex-direction: column;
+  }
+  
+  .account-settings .card-header h4 {
+    font-size: 1.2rem;
+  }
+}
+
+/* 모달 스타일 개선 */
+.modal-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.modal-footer {
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+}
+
+/* 알림 메시지 스타일 */
+.alert {
+  border-radius: 0.25rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid transparent;
+}
+
+.alert-success {
+  color: #2eb85c;
+  background-color: #e6f7ee;
+  border-color: #d1f0e0;
+}
+
+.alert-danger {
+  color: #e55353;
+  background-color: #fbeaea;
+  border-color: #f9d7d7;
+}
+
+/* 데이터 불러오는 중 상태 */
+.account-settings .loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 0;
+}
+
+/* 테이블 행 호버 효과 강화 */
+.account-table tbody tr:hover {
+  background-color: rgba(0, 0, 21, 0.03);
+}
+
+/* 작업 버튼 스타일 */
+.account-management .btn-ghost-info:hover {
+  background-color: rgba(50, 31, 219, 0.1);
+}
+
+.account-management .btn-ghost-danger:hover {
+  background-color: rgba(229, 83, 83, 0.1);
+}
+
+/* 반응형 조정 */
+@media (max-width: 768px) {
+  .account-management .table-responsive {
+    overflow-x: auto;
+  }
+}
+
+/* API 정보 섹션 스타일 */
+.account-management h6 {
+  color: #5c6873;
+  font-weight: 600;
+  margin-top: 10px;
+}
+
+/* 모달 크기 조정 */
+.modal-lg .modal-content {
+  max-width: 800px;
+}
+
+/* 계정 설정 페이지 스타일 */
+.account-settings .form-label {
+  font-weight: 500;
+}
+
+.account-settings .form-text {
+  font-size: 0.8rem;
+  color: #768192;
+}
+
+/* 입력 필드 스타일 */
+.account-settings .input-group-text {
+  background-color: #ebedef;
+}
+
+/* 모달 스타일 개선 */
+.modal-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.modal-footer {
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+}
+
+/* 알림 메시지 스타일 */
+.alert {
+  border-radius: 0.25rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid transparent;
+}
+
+.alert-success {
+  color: #2eb85c;
+  background-color: #e6f7ee;
+  border-color: #d1f0e0;
+}
+
+.alert-danger {
+  color: #e55353;
+  background-color: #fbeaea;
+  border-color: #f9d7d7;
+}
+
+/* 데이터 불러오는 중 상태 */
+.account-settings .loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 0;
+}
+
+/* 테이블 행 호버 효과 강화 */
+.account-table tbody tr:hover {
+  background-color: rgba(0, 0, 21, 0.03);
+} 

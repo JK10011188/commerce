@@ -227,7 +227,7 @@ const MarginCalculator = () => {
       sellingPrice = Math.ceil(sellingPrice / 1000) * 1000
       
       // 최종 정산가 다시 계산
-      settlementPrice = (sellingPrice + actualShippingFee) * (1 - commissionRate)
+      settlementPrice = sellingPrice * (1 - commissionRate) + actualShippingFee
       
       // 최종 마진과 마진율 다시 계산
       margin = settlementPrice - supplyPrice

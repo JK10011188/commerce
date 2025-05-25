@@ -133,6 +133,10 @@ const ProductRegisterForm = memo(() => {
     }
   };
 
+  const removeAllNotifications = () => {
+    setNotifications([]);
+  };
+
   const handleReset = () => {
     resetState();
   }
@@ -182,7 +186,11 @@ const ProductRegisterForm = memo(() => {
   };
 
   return (
-    <CForm onSubmit={handleSubmit}>
+    <CForm onSubmit={handleSubmit} onKeyDown={(e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+      }
+    }}>
       <CCard className="mb-4">
       <CCardHeader className="bg-success text-white d-flex justify-content-between align-items-center">
         <strong>상품 등록</strong>
@@ -232,6 +240,17 @@ const ProductRegisterForm = memo(() => {
               {notification.message}
             </CAlert>
           ))}
+          {notifications.length > 0 && (
+            <div className="text-end mb-4">
+              <CButton 
+                color="link" 
+                size="sm" 
+                onClick={removeAllNotifications}
+              >
+                모두 닫기
+              </CButton>
+            </div>
+          )}
           
           {/* 카테고리 선택 섹션 */}
           <CategorySelector />

@@ -2626,6 +2626,36 @@ app.post("/NsearchCategory", async (req, res) => {
   }
 });
 
+// 네이버 카테고리 조회
+async function NsearchCategory(categoryCode, accessToken) {
+  console.log("네이버 카테고리 상세 조회");
+
+  try {
+
+    const response = await fetch(
+      `https://api.commerce.naver.com/external/v1/categories/${categoryCode}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (response.ok) {
+      const category = await response.json();
+      return category;
+    } else {
+      const errorMessage = await response.text();
+      console.error("Error:", errorMessage);
+      return null;
+    }
+  } catch (error) {
+    console.error("API 요청 에러:", error);
+    return null;
+  }
+};
 
 // 네이버 카테고리별 속성 조회
 app.post("/NsearchAttribute", async (req, res) => {
@@ -2791,6 +2821,92 @@ app.post("/NaddProducts", async (req, res) => {
     reqData.category.id,
     sellerTags
   );
+  
+  const category = await NsearchCategory(reqData.category.id, accessToken.access_token);
+  let productCertificationInfos = [];
+  let certificationTargetExcludeContent = {};
+  if(category.exceptionalCategories.length > 0) {
+    category.exceptionalCategories.forEach(exceptionalCategory => {
+      if(exceptionalCategory === "GREEN_PRODUCTS") {
+        let isrtGreen = false;
+        category.certificationInfos.forEach(info => {
+          let isGreen = false;
+          info.kindTypes.forEach(item => {
+            if(!isGreen && item === "GREEN_PRODUCTS") {
+              isGreen = true;
+            }
+          });
+          if(isGreen) {
+            if(!isrtGreen) {
+              productCertificationInfos.push({
+                certificationInfoId : info.id,
+                certificationKindType : "GREEN_PRODUCTS"
+              });
+              isrtGreen = true;
+            // } else {
+            //   productCertificationInfos.push({
+            //     certificationInfoId : info.id,
+            //     certificationKindType : "ETC"
+            //   });
+            }
+          }
+        })
+        certificationTargetExcludeContent.greenCertifiedProductExclusionYn = true;
+      }
+      if(exceptionalCategory === "KC_CERTIFICATION") {
+        let isrtKc = false;
+        category.certificationInfos.forEach(info => {
+          let isKc = false;
+          info.kindTypes.forEach(item => {
+            if(!isKc && item === "KC_CERTIFICATION") {
+              isKc = true;
+            }
+          });
+          if(isKc) {
+            if(!isrtKc) {
+              productCertificationInfos.push({
+                certificationInfoId : info.id,
+                certificationKindType : "KC_CERTIFICATION"
+              });
+              isrtKc = true;
+            // } else {
+            //   productCertificationInfos.push({
+            //     certificationInfoId : info.id,
+            //     certificationKindType : "ETC"
+            //   });
+            }
+          }
+        });
+        certificationTargetExcludeContent.kcCertifiedProductExclusionYn = "TRUE";
+      }
+      if(exceptionalCategory === "CHILD_CERTIFICATION") {
+        let isrtChild = false;
+        category.certificationInfos.forEach(info => {
+          let isChildCert = false;
+          info.kindTypes.forEach(item => {
+            if(!isChildCert && item === "CHILD_CERTIFICATION") {
+              isChildCert = true;
+            }
+          });
+        });
+        if(isChildCert) {
+          if(!isrtChild) {
+            productCertificationInfos.push({
+              certificationInfoId : info.id,
+              certificationKindType : "CHILD_CERTIFICATION"
+          });
+            isrtChild = true;
+          // } else {
+          //   productCertificationInfos.push({
+          //     certificationInfoId : info.id,
+          //     certificationKindType : "ETC"
+          //   });
+          }
+        }
+        certificationTargetExcludeContent.childCertifiedProductExclusionYn = true;
+      }
+    });
+  }
 
   // 상품 루프
   const products = reqData.products;
@@ -2908,6 +3024,8 @@ app.post("/NaddProducts", async (req, res) => {
               [noticeKey] : getNoti(reqData.providedNotice.productInfoProvidedNoticeType), // 상품정보제공고시
             },
             productAttributes: [], // ** 상품 속성 목록 (모든 PRIMARY 필수인지 확인 필요)
+            productCertificationInfos: null,
+            certificationTargetExcludeContent: {},
             seoInfo: {
               sellerTags: sellerTags.map(tag => ({text : tag})), // 판매자 태그
             },
@@ -2931,6 +3049,11 @@ app.post("/NaddProducts", async (req, res) => {
           channelProductDisplayStatusType: "ON", // 전시상태
         },
       };
+
+      if(productCertificationInfos.length > 0) {
+        // requestData.originProduct.detailAttribute.productCertificationInfos = productCertificationInfos;
+        requestData.originProduct.detailAttribute.certificationTargetExcludeContent = certificationTargetExcludeContent;
+      }
 
       // 속성 정보 설정 추가
       for (const attribute of reqData.selectedProductAttributes) {
@@ -3162,7 +3285,7 @@ app.put("/NchangeProductStatus", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal Server Error" });
     }
-  }
+  } 
 });
 
 exports.app = functions.region('asia-northeast3').https.onRequest(app);

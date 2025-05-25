@@ -138,6 +138,11 @@ const MarginCalculator = () => {
     e.target.blur()
   }
 
+  const handleInputChange = (e, id, field, updateFunction) => {
+    const value = e.target.value.replace(/[^\d]/g, ''); // 숫자만 남도록 정규식 처리
+    updateFunction(id, field, value);
+  };
+
   // 네이버 상품 정보 업데이트 함수
   const updateNaverProduct = (id, field, value) => {
     if(field === 'supplyPrice'){
@@ -181,58 +186,60 @@ const MarginCalculator = () => {
   const calculateNaverProduct = (product) => {
     // 공급가, 수수료, 택배비가 모두 입력된 경우에만 계산
     if (product.supplyPrice && product.commission && product.shippingFee) {
-      const supplyPrice = parseFloat(product.supplyPrice)
-      const commissionRate = parseFloat(product.commission) / 100 // 수수료를 퍼센트에서 소수로 변환
-      const shippingFee = parseFloat(product.shippingFee)
+      const supplyPrice = parseFloat(product.supplyPrice);
+      const commissionRate = parseFloat(product.commission) / 100; // 수수료를 퍼센트에서 소수로 변환
+      const shippingFee = parseFloat(product.shippingFee);
       
-      if (!isNaN(supplyPrice) && !isNaN(commissionRate) && !isNaN(shippingFee)) {
-        // 실제 택배비 계산 (입력값의 97%)
-        const actualShippingFee = shippingFee * 0.97
+      if (isNaN(supplyPrice) || isNaN(commissionRate) || isNaN(shippingFee)) {
+        return product; // 숫자가 아닌 경우 계산하지 않음
+      }
+      
+      // 실제 택배비 계산 (입력값의 97%)
+      const actualShippingFee = shippingFee * 0.97
+      
+      // 판매가를 100원씩 증가시키면서 마진과 마진율 계산
+      let sellingPrice = supplyPrice // 초기 판매가는 공급가로 설정
+      let margin = 0
+      let marginRate = 0
+      let settlementPrice = 0 // 정산가
+      
+      // 최대 1000번 반복 (무한 루프 방지)
+      for (let i = 0; i < 1000; i++) {
+        // 정산가 계산: (판매가 + 택배비) * (1 - 수수료율)
+        settlementPrice = sellingPrice * (1 - commissionRate) + actualShippingFee
         
-        // 판매가를 100원씩 증가시키면서 마진과 마진율 계산
-        let sellingPrice = supplyPrice // 초기 판매가는 공급가로 설정
-        let margin = 0
-        let marginRate = 0
-        let settlementPrice = 0 // 정산가
-        
-        // 최대 1000번 반복 (무한 루프 방지)
-        for (let i = 0; i < 1000; i++) {
-          // 정산가 계산: (판매가 + 택배비) * (1 - 수수료율)
-          settlementPrice = (sellingPrice + actualShippingFee) * (1 - commissionRate)
-          
-          // 마진 계산: 정산가 - 공급가
-          margin = settlementPrice - supplyPrice
-          
-          // 마진율 계산: (마진 / 정산가) * 100
-          marginRate = (margin / settlementPrice) * 100
-          
-          // 마진이 4000원 이상이고 마진율이 10% 이상이면 반복 중단
-          if (margin >= 4000 && marginRate >= 10) {
-            break
-          }
-          
-          // 판매가 100원 증가
-          sellingPrice += 100
-        }
-
-        // 판매가를 100원 단위로 올림
-        sellingPrice = Math.ceil(sellingPrice / 1000) * 1000
-        
-        // 최종 정산가 다시 계산
-        settlementPrice = (sellingPrice + actualShippingFee) * (1 - commissionRate)
-        
-        // 최종 마진과 마진율 다시 계산
+        // 마진 계산: 정산가 - 공급가
         margin = settlementPrice - supplyPrice
+        
+        // 마진율 계산: (마진 / 정산가) * 100
         marginRate = (margin / settlementPrice) * 100
         
-        return {
-          ...product,
-          margin,
-          marginRate,
-          sellingPrice,
-          actualShippingFee, // 실제 택배비
-          settlementPrice // 정산가
+        // 마진이 4000원 이상이고 마진율이 10% 이상이면 반복 중단
+        if (margin >= 4000 && marginRate >= 10) {
+          break
         }
+        
+        // 판매가 100원 증가
+        sellingPrice += 100
+      }
+
+      // 판매가를 100원 단위로 올림
+      sellingPrice = Math.ceil(sellingPrice / 1000) * 1000
+      
+      // 최종 정산가 다시 계산
+      settlementPrice = (sellingPrice + actualShippingFee) * (1 - commissionRate)
+      
+      // 최종 마진과 마진율 다시 계산
+      margin = settlementPrice - supplyPrice
+      marginRate = (margin / settlementPrice) * 100
+      
+      return {
+        ...product,
+        margin,
+        marginRate,
+        sellingPrice,
+        actualShippingFee, // 실제 택배비
+        settlementPrice // 정산가
       }
     }
     return product
@@ -242,53 +249,55 @@ const MarginCalculator = () => {
   const calculateCoupangProduct = (product) => {
     // 공급가, 수수료가 모두 입력된 경우에만 계산
     if (product.supplyPrice && product.commission) {
-      const supplyPrice = parseFloat(product.supplyPrice)
-      const commissionRate = parseFloat(product.commission) / 100 // 수수료를 퍼센트에서 소수로 변환
+      const supplyPrice = parseFloat(product.supplyPrice);
+      const commissionRate = parseFloat(product.commission) / 100; // 수수료를 퍼센트에서 소수로 변환
       
-      if (!isNaN(supplyPrice) && !isNaN(commissionRate)) {
-        // 판매가를 100원씩 증가시키면서 마진과 마진율 계산
-        let sellingPrice = supplyPrice // 초기 판매가는 공급가로 설정
-        let margin = 0
-        let marginRate = 0
-        let settlementPrice = 0 // 정산가
-        
-        // 최대 1000번 반복 (무한 루프 방지)
-        for (let i = 0; i < 1000; i++) {
-          // 정산가 계산: 판매가 * (1 - 수수료율)
-          settlementPrice = sellingPrice * (1 - commissionRate)
-          
-          // 마진 계산: 정산가 - 공급가
-          margin = settlementPrice - supplyPrice
-          
-          // 마진율 계산: (마진 / 정산가) * 100
-          marginRate = (margin / settlementPrice) * 100
-          
-          // 마진이 4000원 이상이고 마진율이 10% 이상이면 반복 중단
-          if (margin >= 4000 && marginRate >= 10) {
-            break
-          }
-          
-          // 판매가 100원 증가
-          sellingPrice += 100
-        }
-
-        // 판매가를 100원 단위로 올림
-        sellingPrice = Math.ceil(sellingPrice / 1000) * 1000
-        
-        // 최종 정산가 다시 계산
+      if (isNaN(supplyPrice) || isNaN(commissionRate)) {
+        return product; // 숫자가 아닌 경우 계산하지 않음
+      }
+      
+      // 판매가를 100원씩 증가시키면서 마진과 마진율 계산
+      let sellingPrice = supplyPrice // 초기 판매가는 공급가로 설정
+      let margin = 0
+      let marginRate = 0
+      let settlementPrice = 0 // 정산가
+      
+      // 최대 1000번 반복 (무한 루프 방지)
+      for (let i = 0; i < 1000; i++) {
+        // 정산가 계산: 판매가 * (1 - 수수료율)
         settlementPrice = sellingPrice * (1 - commissionRate)
         
-        // 최종 마진과 마진율 다시 계산
+        // 마진 계산: 정산가 - 공급가
         margin = settlementPrice - supplyPrice
+        
+        // 마진율 계산: (마진 / 정산가) * 100
         marginRate = (margin / settlementPrice) * 100
         
-        return {
-          ...product,
-          margin,
-          marginRate,
-          sellingPrice,
-          settlementPrice // 정산가
+        // 마진이 4000원 이상이고 마진율이 10% 이상이면 반복 중단
+        if (margin >= 4000 && marginRate >= 10) {
+          break
         }
+        
+        // 판매가 100원 증가
+        sellingPrice += 100
+      }
+
+      // 판매가를 100원 단위로 올림
+      sellingPrice = Math.ceil(sellingPrice / 1000) * 1000
+      
+      // 최종 정산가 다시 계산
+      settlementPrice = sellingPrice * (1 - commissionRate)
+      
+      // 최종 마진과 마진율 다시 계산
+      margin = settlementPrice - supplyPrice
+      marginRate = (margin / settlementPrice) * 100
+      
+      return {
+        ...product,
+        margin,
+        marginRate,
+        sellingPrice,
+        settlementPrice // 정산가
       }
     }
     return product
@@ -343,7 +352,7 @@ const MarginCalculator = () => {
             <CFormInput
               type="text"
               value={product.supplyPrice}
-              onChange={(e) => updateNaverProduct(product.id, 'supplyPrice', e.target.value)}
+              onChange={(e) => handleInputChange(e, product.id, 'supplyPrice', updateNaverProduct)}
               onWheel={preventScrollOnNumberInput}
               placeholder="공급가"
             />
@@ -355,7 +364,7 @@ const MarginCalculator = () => {
             <CFormInput
               type="text"
               value={product.commission}
-              onChange={(e) => updateNaverProduct(product.id, 'commission', e.target.value)}
+              onChange={(e) => handleInputChange(e, product.id, 'commission', updateNaverProduct)}
               onWheel={preventScrollOnNumberInput}
               placeholder="수수료"
               disabled={product.id !== 1} // 1번 상품만 수수료 입력 가능
@@ -368,7 +377,7 @@ const MarginCalculator = () => {
             <CFormInput
               type="text"
               value={product.shippingFee}
-              onChange={(e) => updateNaverProduct(product.id, 'shippingFee', e.target.value)}
+              onChange={(e) => handleInputChange(e, product.id, 'shippingFee', updateNaverProduct)}
               onWheel={preventScrollOnNumberInput}
               placeholder="택배비"
               disabled={product.id !== 1} // 1번 상품만 택배비 입력 가능
@@ -418,7 +427,7 @@ const MarginCalculator = () => {
             <CFormInput
               type="text"
               value={product.commission}
-              onChange={(e) => updateCoupangProduct(product.id, 'commission', e.target.value)}
+              onChange={(e) => handleInputChange(e, product.id, 'commission', updateCoupangProduct)}
               onWheel={preventScrollOnNumberInput}
               placeholder="수수료"
               disabled={product.id !== 1} // 1번 상품만 수수료 입력 가능

@@ -2843,14 +2843,9 @@ app.post("/NaddProducts", async (req, res) => {
                 certificationKindType : "GREEN_PRODUCTS"
               });
               isrtGreen = true;
-            // } else {
-            //   productCertificationInfos.push({
-            //     certificationInfoId : info.id,
-            //     certificationKindType : "ETC"
-            //   });
             }
           }
-        })
+        });
         certificationTargetExcludeContent.greenCertifiedProductExclusionYn = true;
       }
       if(exceptionalCategory === "KC_CERTIFICATION") {
@@ -2869,11 +2864,6 @@ app.post("/NaddProducts", async (req, res) => {
                 certificationKindType : "KC_CERTIFICATION"
               });
               isrtKc = true;
-            // } else {
-            //   productCertificationInfos.push({
-            //     certificationInfoId : info.id,
-            //     certificationKindType : "ETC"
-            //   });
             }
           }
         });
@@ -2888,21 +2878,16 @@ app.post("/NaddProducts", async (req, res) => {
               isChildCert = true;
             }
           });
+            if(isChildCert) {
+                if(!isrtChild) {
+                    productCertificationInfos.push({
+                    certificationInfoId : info.id,
+                    certificationKindType : "CHILD_CERTIFICATION"
+                });
+                    isrtChild = true;
+                }
+            }
         });
-        if(isChildCert) {
-          if(!isrtChild) {
-            productCertificationInfos.push({
-              certificationInfoId : info.id,
-              certificationKindType : "CHILD_CERTIFICATION"
-          });
-            isrtChild = true;
-          // } else {
-          //   productCertificationInfos.push({
-          //     certificationInfoId : info.id,
-          //     certificationKindType : "ETC"
-          //   });
-          }
-        }
         certificationTargetExcludeContent.childCertifiedProductExclusionYn = true;
       }
     });
@@ -2926,15 +2911,16 @@ app.post("/NaddProducts", async (req, res) => {
     stockQuantity: 9999999,
   }];
 
-  const modifiedProducts = products.map(product => ({
-    ...product,
-    name: `${product.name} 샘플증여`, 
-    price: parseInt(product.price) + 1000, // 가격에 1000원 추가
-    regularPrice: parseInt(product.regularPrice) + 1300, // 가격에 1000원 추가
-  }));
-  const combinedProducts = [...products, ...modifiedProducts];
+//   const modifiedProducts = products.map(product => ({
+//     ...product,
+//     name: `${product.name} 샘플증여`, 
+//     price: parseInt(product.price) + 1000, // 가격에 1000원 추가
+//     regularPrice: parseInt(product.regularPrice) + 1300, // 가격에 1000원 추가
+//   }));
+//   const combinedProducts = [...products, ...modifiedProducts];
 
-  for (const product of combinedProducts) {
+//   for (const product of combinedProducts) {
+for (const product of products) {
 
     // 상품명이 없으면 스킵
     if (!product.name) {
@@ -3285,7 +3271,7 @@ app.put("/NchangeProductStatus", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal Server Error" });
     }
-  } 
+  }
 });
 
 exports.app = functions.region('asia-northeast3').https.onRequest(app);

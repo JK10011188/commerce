@@ -208,7 +208,8 @@ export const useProductStore = create(
           asInfo: {asNumber: '070-7954-3996', asDescription: '톡톡으로 문의주세요'},
           deliveryInfo: {
             deliveryType: "DELIVERY",
-            deliveryAttributeType: "TODAY", // 오늘출발 값 true면 "TODAY", 아니면 NORMAL
+            //deliveryAttributeType: "TODAY", // 오늘출발 값 true면 "TODAY", 아니면 NORMAL
+            deliveryAttributeType: "NORMAL", // 오늘출발 값 true면 "TODAY", 아니면 NORMAL
             deliveryCompany: "CJGLS", // 대한통운
             deliveryFee: {
               deliveryFeeType: "PAID", // 유료배송

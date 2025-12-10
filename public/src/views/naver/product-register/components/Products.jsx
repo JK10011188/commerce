@@ -132,9 +132,9 @@ const ProductList = () => {
       return;
     }
 
-    const generatedProducts = optionValues.map((_, idx) => {
-      const product = makeNewProduct();
-      // 옵션값 순서를: 상품마다 큐처럼 한 칸씩 회전
+    const counts = [1, 2, 3, 4, 5]; // 기본 상품 등록처럼 1~5개 변형
+
+    const generatedProducts = optionValues.flatMap((_, idx) => {
       const shift = optionValues.length > 0 ? idx % optionValues.length : 0;
       const rotated = [
         ...optionValues.slice(shift),
@@ -145,30 +145,36 @@ const ProductList = () => {
         value: v,
       }));
       const firstOptionValue = orderedValues[0]?.value || '';
+
+      return counts.map((cnt) => {
+        const suffix = cnt > 1 ? ` ${cnt}개` : '';
+      const optionNameWithCount = cnt > 1 ? `${optName}(${cnt}개)` : optName;
       const nameWithOption = (() => {
         switch (optionNameFormat) {
           case 'name-value':
-            return `${baseName} ${optName} ${firstOptionValue}`;
+            return `${baseName} ${optName} ${firstOptionValue}${suffix}`;
           case 'value-only':
-            return `${baseName} ${firstOptionValue}`;
+            return `${baseName} ${firstOptionValue}${suffix}`;
           case 'value-name':
           default:
-            return `${baseName} ${firstOptionValue} ${optName}`;
+            return `${baseName} ${firstOptionValue} ${optName}${suffix}`;
         }
       })();
 
-      return {
-        ...product,
-        name: nameWithOption,
-        options: [
-          {
-            id: crypto.randomUUID(),
-            name: optName,
-            values: orderedValues,
-          },
-          ...baseOptions,
-        ],
-      };
+        const product = makeNewProduct();
+        return {
+          ...product,
+          name: nameWithOption,
+          options: [
+            {
+              id: crypto.randomUUID(),
+              name: optionNameWithCount,
+              values: orderedValues,
+            },
+            ...baseOptions,
+          ],
+        };
+      });
     });
 
     setProducts(generatedProducts);

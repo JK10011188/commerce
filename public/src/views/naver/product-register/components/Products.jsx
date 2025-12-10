@@ -132,13 +132,15 @@ const ProductList = () => {
       return;
     }
 
-    const generatedProducts = optionValues.map((val, idx) => {
+    const generatedProducts = optionValues.map((_, idx) => {
       const product = makeNewProduct();
-      // 옵션값 순서를: 해당 상품의 옵션값이 맨 앞, 나머지는 뒤에
-      const orderedValues = [
-        optionValues[idx],
-        ...optionValues.filter((_, i) => i !== idx),
-      ].map((v) => ({
+      // 옵션값 순서를: 상품마다 큐처럼 한 칸씩 회전
+      const shift = optionValues.length > 0 ? idx % optionValues.length : 0;
+      const rotated = [
+        ...optionValues.slice(shift),
+        ...optionValues.slice(0, shift),
+      ];
+      const orderedValues = rotated.map((v) => ({
         id: crypto.randomUUID(),
         value: v,
       }));

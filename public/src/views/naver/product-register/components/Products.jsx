@@ -7,6 +7,8 @@ import {
   CCol,
   CFormInput,
   CFormLabel,
+  CFormCheck,
+  CFormSelect,
   CInputGroup,
   CInputGroupText,
   CRow,
@@ -19,11 +21,16 @@ import ProductOptions from './ProductOptions'
 import { useProductStore } from '../../../../stores/useNaverStore'
 import { useNaverProductActions } from '../../../../hooks/useNaverProductActions'
 const ProductList = () => {
-  const { products, setProduct, removeProduct, addProduct, setCommonInfo, setMainProduct, mainProduct} = useProductStore();
+  const { products, setProduct, removeProduct, addProduct, setProducts, setCommonInfo, setMainProduct, mainProduct, isOptionProductMode, setOptionProductMode} = useProductStore();
   const { makeNewProduct } = useNaverProductActions();
   const [closedProducts, setClosedProducts] = useState([]);
+  const [optionProductName, setOptionProductName] = useState('');
+  const [optionName, setOptionName] = useState('');
+  const [optionValuesInput, setOptionValuesInput] = useState('');
+  const [optionNameFormat, setOptionNameFormat] = useState('value-name'); // value-name | name-value | value-only
 
   useEffect(() => {
+    if(isOptionProductMode) return;
     if(mainProduct?.name){
       products.forEach((product, index) => {
         if(product.id !== mainProduct?.id){
@@ -38,6 +45,20 @@ const ProductList = () => {
       setMainProduct(products[0]);
     }
   }, [products]);
+
+  // 옵션 상품 모드 전환 시 초기화: 기존 상품 제거, 옵션 입력으로만 생성
+  useEffect(() => {
+    if (isOptionProductMode) {
+      setProducts([]);
+      setMainProduct(null);
+      setClosedProducts([]);
+    } else {
+      // 옵션 모드 해제 시에도 비워서 상위(ProductRegister) 초기화 로직이 5개를 재생성하게 함
+      setProducts([]);
+      setMainProduct(null);
+      setClosedProducts([]);
+    }
+  }, [isOptionProductMode]);
 
   const handleToggleProduct = (productId) => {
     setClosedProducts(prev => 
@@ -93,16 +114,132 @@ const ProductList = () => {
     addProduct(newProduct);
   };
 
+  const handleGenerateOptionProducts = () => {
+    const baseName = optionProductName.trim();
+    const optName = optionName.trim();
+    const optionValues = optionValuesInput
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => v);
+
+    // 모든 상품의 옵션을 모아 새 옵션을 제외한 기존 옵션 목록을 유지
+    const baseOptions = products
+      .flatMap((p) => p.options || [])
+      .filter((opt) => opt?.name && opt.name !== optName);
+
+    if (!baseName || !optName || optionValues.length === 0) {
+      alert('상품명, 옵션명, 옵션값(쉼표 구분)을 모두 입력하세요.');
+      return;
+    }
+
+    const generatedProducts = optionValues.map((val, idx) => {
+      const product = makeNewProduct();
+      // 옵션값 순서를: 해당 상품의 옵션값이 맨 앞, 나머지는 뒤에
+      const orderedValues = [
+        optionValues[idx],
+        ...optionValues.filter((_, i) => i !== idx),
+      ].map((v) => ({
+        id: crypto.randomUUID(),
+        value: v,
+      }));
+      const firstOptionValue = orderedValues[0]?.value || '';
+      const nameWithOption = (() => {
+        switch (optionNameFormat) {
+          case 'name-value':
+            return `${baseName} ${optName} ${firstOptionValue}`;
+          case 'value-only':
+            return `${baseName} ${firstOptionValue}`;
+          case 'value-name':
+          default:
+            return `${baseName} ${firstOptionValue} ${optName}`;
+        }
+      })();
+
+      return {
+        ...product,
+        name: nameWithOption,
+        options: [
+          {
+            id: crypto.randomUUID(),
+            name: optName,
+            values: orderedValues,
+          },
+          ...baseOptions,
+        ],
+      };
+    });
+
+    setProducts(generatedProducts);
+    setMainProduct(generatedProducts[0]);
+  };
+
   return (
     <CCard className="mb-4">
       <CCardHeader className="d-flex justify-content-between align-items-center bg-success bg-opacity-25">
         <strong>상품 정보</strong>
-        <CButton color="primary" size="sm" onClick={handleAddProduct}>
-          <CIcon icon={cilPlus} className="me-2" />
-          상품 추가
-        </CButton>
+        <div className="d-flex align-items-center gap-3">
+          <CFormCheck
+            id="optionProductMode"
+            label="옵션 상품 등록"
+            checked={isOptionProductMode}
+            onChange={(e) => setOptionProductMode(e.target.checked)}
+          />
+          <CButton color="primary" size="sm" onClick={handleAddProduct}>
+            <CIcon icon={cilPlus} className="me-2" />
+            상품 추가
+          </CButton>
+        </div>
       </CCardHeader>
       <CCardBody>
+        {isOptionProductMode && (
+          <div className="mb-4 border rounded p-3 bg-light">
+            <CRow className="g-3 align-items-end">
+              <CCol md={4}>
+                <CFormLabel>상품명</CFormLabel>
+                <CFormInput
+                  value={optionProductName}
+                  onChange={(e) => setOptionProductName(e.target.value)}
+                  placeholder="예) 기본 상품명"
+                />
+              </CCol>
+              <CCol md={3}>
+                <CFormLabel>옵션명</CFormLabel>
+                <CFormInput
+                  value={optionName}
+                  onChange={(e) => setOptionName(e.target.value)}
+                  placeholder="예) 옵션"
+                />
+              </CCol>
+              <CCol md={3}>
+                <CFormLabel>옵션값 (쉼표로 구분)</CFormLabel>
+                <CFormInput
+                  value={optionValuesInput}
+                  onChange={(e) => setOptionValuesInput(e.target.value)}
+                  placeholder="예) 빨강, 파랑, 노랑"
+                />
+              </CCol>
+            </CRow>
+            <CRow className="g-3 align-items-end mt-2">
+              <CCol md={6} lg={4}>
+                <CFormLabel>상품명 생성 형식</CFormLabel>
+                <CFormSelect
+                  value={optionNameFormat}
+                  onChange={(e) => setOptionNameFormat(e.target.value)}
+                >
+                  <option value="value-name">상품명 + 옵션값 + 옵션명</option>
+                  <option value="name-value">상품명 + 옵션명 + 옵션값</option>
+                  <option value="value-only">상품명 + 옵션값</option>
+                </CFormSelect>
+              </CCol>
+              <CCol md="auto" className="d-grid">
+                <CFormLabel className="invisible">생성</CFormLabel>
+                <CButton color="primary" onClick={handleGenerateOptionProducts}>
+                  생성
+                </CButton>
+              </CCol>
+            </CRow>
+          </div>
+        )}
         {products.map((product, index) => (
           <CCard key={product.id} className="mb-3">
             <CCardHeader className="bg-success bg-opacity-25 border-bottom d-flex justify-content-between align-items-center">
@@ -231,9 +368,10 @@ const ProductList = () => {
                   </CCol>
                 </CRow>
                 {/* 상품 이미지 업로드 영역 */}
+                {/* 상품 이미지 업로드 영역 */}
                 <ProductImageUploader productId={product.id} />
-                {/* 상품 옵션 영역 */}
-                <ProductOptions productId={product.id} index={index} />
+                {/* 상품 옵션 영역: 옵션 모드에서도 기존 UI를 그대로 표시 (읽기전용) */}
+                <ProductOptions productId={product.id} index={index} readOnly={isOptionProductMode} />
               </CCardBody>
             )}
           </CCard>

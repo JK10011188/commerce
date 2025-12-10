@@ -178,7 +178,6 @@ export const useNaverProductActions = () => {
       store.setLoading(true)
 
       // 이름이 있는 상품들만 필터링
-      debugger;
       const validProducts = store.products.filter(product => product.name && product.price > 0);
       
       // 첫 번째 상품의 대표 이미지를 제외한 나머지 이미지들

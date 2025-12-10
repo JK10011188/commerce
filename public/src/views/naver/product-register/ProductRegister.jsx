@@ -35,7 +35,7 @@ const ProductRegisterForm = memo(() => {
     addProduct
   } = useNaverProductActions();
 
-  const { resetState, products, selectedCategory, detailImages, tags, setMainProduct } = useProductStore();
+  const { resetState, products, selectedCategory, detailImages, tags, setMainProduct, isOptionProductMode } = useProductStore();
   const [validationError, setValidationError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -46,14 +46,14 @@ const ProductRegisterForm = memo(() => {
 
   // 초기 상품 5개 설정
   useEffect(() => {
-    if (products.length === 0) {
+    if (products.length === 0 && !isOptionProductMode) {
       for(let i = 0; i < 5; i++){
         const newProduct = makeNewProduct();
         addProduct(newProduct);
       }
       setMainProduct(products[0]);
     }
-  }, [products.length]);
+  }, [products.length, isOptionProductMode]);
 
   // ESC 키로 모달 닫기 및 DEL 키로 상세 이미지 삭제 처리
   useEffect(() => {

@@ -49,6 +49,9 @@ export const useProductStore = create(
 
       collapsedProducts: new Set(), // 닫힌 상품 ID를 저장하는 Set
 
+      // 옵션 상품 모드
+      isOptionProductMode: false,
+
       // Setter 함수들
       setCategories: (level, data) => {
         set({ [`${level}Categories`]: data });
@@ -152,6 +155,8 @@ export const useProductStore = create(
       setDetailImageDragActive: (active) => set({ detailImageDragActive: active }),
       setPreviewModal: (value) => set({ previewModal: value }),
 
+      setOptionProductMode: (value) => set({ isOptionProductMode: value }),
+
       // 상품 토글 상태 변경
       toggleProductCollapse: (productId) => {
         set((state) => {
@@ -231,6 +236,7 @@ export const useProductStore = create(
           detailImageDragActive: false,
           previewModal: false,
           collapsedProducts: new Set(),
+          isOptionProductMode: false,
         });
         localStorage.removeItem('productState');
       },

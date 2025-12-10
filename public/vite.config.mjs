@@ -10,6 +10,12 @@ export default defineConfig(() => {
       outDir: 'build',
     },
     css: {
+      // Sass 1.95에서 if() 구문 deprecated 경고를 조용히 처리
+      preprocessorOptions: {
+        scss: {
+          silenceDeprecations: ['if-function'],
+        },
+      },
       postcss: {
         plugins: [
           autoprefixer({}), // add options if needed

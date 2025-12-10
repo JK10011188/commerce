@@ -19,7 +19,7 @@ import CIcon from '@coreui/icons-react'
 import { cilPlus, cilTrash } from '@coreui/icons'
 import { useProductStore } from '../../../../stores/useNaverStore'
 
-const ProductOptions = ({ productId, index }) => {
+const ProductOptions = ({ productId, index, readOnly = false }) => {
   const { products, setProduct, mainProduct, setMainProduct } = useProductStore();
   const [optionName, setOptionName] = useState('');
   const [optionValues, setOptionValues] = useState('');
@@ -85,6 +85,7 @@ const ProductOptions = ({ productId, index }) => {
   }
 
   const handleAddOption = () => {
+    if (readOnly) return;
     if (!optionName.trim() || !optionValues.trim()) return;
     
     // 이미 존재하는 옵션명인지 확인
@@ -153,6 +154,7 @@ const ProductOptions = ({ productId, index }) => {
   };
 
   const handleRemoveOption = (optionId, valueId) => {
+    if (readOnly) return;
     const updatedProduct = {
       ...product,
       options: options.map(opt => {
@@ -188,39 +190,41 @@ const ProductOptions = ({ productId, index }) => {
         <strong>옵션 정보</strong>
       </CCardHeader>
       <CCardBody>
-        <CRow className="mb-4">
-          <CCol sm={1}>
-            <CFormLabel>옵션명</CFormLabel>
-          </CCol>
-          <CCol sm={3}>
-            <CFormInput
-              type="text"
-              value={optionName}
-              onChange={(e) => setOptionName(e.target.value)}
-              placeholder="옵션명을 입력하세요"
-            />
-          </CCol>
-          <CCol sm={1}>
-            <CFormLabel>옵션값</CFormLabel>
-          </CCol>
-          <CCol sm={5}>
-            <CFormInput
-              type="text"
-              value={optionValues}
-              onChange={(e) => setOptionValues(e.target.value)}
-              placeholder="옵션값을 쉼표(,)로 구분하여 입력하세요"
-            />
-          </CCol>
-          <CCol sm={2}>
-            <CButton 
-              color="primary" 
-              onClick={handleAddOption}
-            >
-              <CIcon icon={cilPlus} className="me-2" />
-              추가
-            </CButton>
-          </CCol>
-        </CRow>
+        {!readOnly && (
+          <CRow className="mb-4">
+            <CCol sm={1}>
+              <CFormLabel>옵션명</CFormLabel>
+            </CCol>
+            <CCol sm={3}>
+              <CFormInput
+                type="text"
+                value={optionName}
+                onChange={(e) => setOptionName(e.target.value)}
+                placeholder="옵션명을 입력하세요"
+              />
+            </CCol>
+            <CCol sm={1}>
+              <CFormLabel>옵션값</CFormLabel>
+            </CCol>
+            <CCol sm={5}>
+              <CFormInput
+                type="text"
+                value={optionValues}
+                onChange={(e) => setOptionValues(e.target.value)}
+                placeholder="옵션값을 쉼표(,)로 구분하여 입력하세요"
+              />
+            </CCol>
+            <CCol sm={2}>
+              <CButton 
+                color="primary" 
+                onClick={handleAddOption}
+              >
+                <CIcon icon={cilPlus} className="me-2" />
+                추가
+              </CButton>
+            </CCol>
+          </CRow>
+        )}
 
         {options.length === 0 ? (
           <div className="text-muted">등록된 옵션이 없습니다.</div>
@@ -230,7 +234,7 @@ const ProductOptions = ({ productId, index }) => {
               <CTableRow>
                 <CTableHeaderCell>옵션명</CTableHeaderCell>
                 <CTableHeaderCell>옵션값</CTableHeaderCell>
-                <CTableHeaderCell>작업</CTableHeaderCell>
+                {!readOnly && <CTableHeaderCell>작업</CTableHeaderCell>}
               </CTableRow>
             </CTableHead>
             <CTableBody>
@@ -239,16 +243,18 @@ const ProductOptions = ({ productId, index }) => {
                   <CTableRow key={`${option.id}-${value.id}`}>
                     <CTableDataCell>{option.name}</CTableDataCell>
                     <CTableDataCell>{value.value}</CTableDataCell>
-                    <CTableDataCell>
-                      <CButton
-                        color="danger"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRemoveOption(option.id, value.id)}
-                      >
-                        <CIcon icon={cilTrash} />
-                      </CButton>
-                    </CTableDataCell>
+                    {!readOnly && (
+                      <CTableDataCell>
+                        <CButton
+                          color="danger"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRemoveOption(option.id, value.id)}
+                        >
+                          <CIcon icon={cilTrash} />
+                        </CButton>
+                      </CTableDataCell>
+                    )}
                   </CTableRow>
                 ))
               ))}

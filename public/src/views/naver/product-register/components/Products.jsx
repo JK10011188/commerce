@@ -29,6 +29,15 @@ const ProductList = () => {
   const [optionName, setOptionName] = useState('');
   const [optionValuesInput, setOptionValuesInput] = useState('');
   const [optionNameFormat, setOptionNameFormat] = useState('value-name'); // value-name | name-value | value-only
+  const defaultOptionPrices = {
+    1: { regularPrice: '', discountRate: '23', price: '' },
+    2: { regularPrice: '', discountRate: '23', price: '' },
+    3: { regularPrice: '', discountRate: '23', price: '' },
+    4: { regularPrice: '', discountRate: '23', price: '' },
+    5: { regularPrice: '', discountRate: '23', price: '' },
+  };
+  const [optionPrices, setOptionPrices] = useState(defaultOptionPrices);
+  const countVariants = [1, 2, 3, 4, 5]; // 1개~5개 변형 공통 사용
 
   useEffect(() => {
     if(isOptionProductMode) return;
@@ -54,12 +63,14 @@ const ProductList = () => {
       setMainProduct(null);
       setClosedProducts([]);
       setClosedGroups([]);
+      setOptionPrices(defaultOptionPrices);
     } else {
       // 옵션 모드 해제 시에도 비워서 상위(ProductRegister) 초기화 로직이 5개를 재생성하게 함
       setProducts([]);
       setMainProduct(null);
       setClosedProducts([]);
       setClosedGroups([]);
+      setOptionPrices(defaultOptionPrices);
     }
   }, [isOptionProductMode]);
 
@@ -137,6 +148,42 @@ const ProductList = () => {
     e.target.blur();
   }
 
+  // 옵션 상품 가격(1~5개) 일괄 입력 핸들러 (기본 23%, 수정 가능)
+  const handleOptionPriceChange = (count, name, value) => {
+    setOptionPrices((prev) => {
+      const current = prev[count] || { regularPrice: '', discountRate: '23', price: '' };
+      let updated = { ...current };
+      if (name === 'regularPrice') {
+        const discount = parseFloat(current.discountRate || '0');
+        const salePrice = value === ''
+          ? ''
+          : Math.round((Number(value || 0) * (1 - discount / 100)) / 100) * 100;
+        updated = { ...current, regularPrice: value, price: salePrice !== '' ? salePrice.toString() : '' };
+      } else if (name === 'discountRate') {
+        const discount = parseFloat(value || '0');
+        const salePrice = current.regularPrice !== ''
+          ? Math.round((Number(current.regularPrice) * (1 - discount / 100)) / 100) * 100
+          : current.price;
+        const regular = current.price !== ''
+          ? Math.round(Number(current.price) / (1 - discount / 100) / 100) * 100
+          : current.regularPrice;
+        updated = { 
+          ...current, 
+          discountRate: value, 
+          regularPrice: regular !== '' ? regular.toString() : '', 
+          price: salePrice !== '' ? salePrice.toString() : '' 
+        };
+      } else if (name === 'price') {
+        const discount = parseFloat(current.discountRate || '0');
+        const regular = value === ''
+          ? ''
+          : Math.round(Number(value || 0) / (1 - discount / 100) / 100) * 100;
+        updated = { ...current, price: value, regularPrice: regular !== '' ? regular.toString() : '' };
+      }
+      return { ...prev, [count]: updated };
+    });
+  };
+
   const handleRemoveProduct = (productId) => {
     if (products.length <= 1) return;
     removeProduct(productId);
@@ -165,8 +212,6 @@ const ProductList = () => {
       return;
     }
 
-    const counts = [1, 2, 3, 4, 5]; // 기본 상품 등록처럼 1~5개 변형
-
     const generatedProducts = optionValues.flatMap((_, idx) => {
       const shift = optionValues.length > 0 ? idx % optionValues.length : 0;
       const rotated = [
@@ -179,7 +224,7 @@ const ProductList = () => {
       }));
       const firstOptionValue = orderedValues[0]?.value || '';
 
-      return counts.map((cnt) => {
+      return countVariants.map((cnt) => {
         const suffix = cnt > 1 ? ` ${cnt}개` : '';
       const optionNameWithCount = cnt > 1 ? `${optName}(${cnt}개)` : optName;
       const nameWithOption = (() => {
@@ -195,9 +240,13 @@ const ProductList = () => {
       })();
 
         const product = makeNewProduct();
+        const priceInfo = optionPrices?.[cnt] || { discountRate: '23' };
         return {
           ...product,
           name: nameWithOption,
+          regularPrice: priceInfo.regularPrice ?? product.regularPrice,
+          discountRate: priceInfo.discountRate ?? '23',
+          price: priceInfo.price ?? product.price,
           options: [
             {
               id: crypto.randomUUID(),
@@ -274,8 +323,74 @@ const ProductList = () => {
                   <option value="value-only">상품명 + 옵션값</option>
                 </CFormSelect>
               </CCol>
-              <CCol md="auto" className="d-grid">
-                <CFormLabel className="invisible">생성</CFormLabel>
+            </CRow>
+            <CRow className="g-2 mt-3">
+              <CCol xs={12}>
+                <div className="fw-bold mb-2">옵션 상품 가격 (1~5개 변형 일괄 적용, 할인율 23% 고정)</div>
+              </CCol>
+              {countVariants.map((cnt) => (
+                <CCol xs={12} key={`option-price-${cnt}`}>
+                  <CRow className="g-2 align-items-end">
+                    <CCol xs={12} sm={2}>
+                      <CFormLabel className="mb-0">{cnt}개 가격 입력</CFormLabel>
+                    </CCol>
+                    <CCol xs={12} sm={4} md={3} lg={3}>
+                      <CInputGroup>
+                        <CFormInput
+                          type="text"
+                          value={optionPrices[cnt]?.regularPrice || ''}
+                          onChange={(e) => handleOptionPriceChange(cnt, 'regularPrice', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                              e.preventDefault();
+                            }
+                          }}
+                          onWheel={preventScrollOnNumberInput}
+                          placeholder="정상가"
+                        />
+                        <CInputGroupText>원</CInputGroupText>
+                      </CInputGroup>
+                    </CCol>
+                    <CCol xs={6} sm={2} md={2} lg={2}>
+                      <CInputGroup>
+                        <CFormInput
+                          type="text"
+                          value={optionPrices[cnt]?.discountRate || ''}
+                          onChange={(e) => handleOptionPriceChange(cnt, 'discountRate', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                              e.preventDefault();
+                            }
+                          }}
+                          onWheel={preventScrollOnNumberInput}
+                          placeholder="할인율"
+                        />
+                        <CInputGroupText>%</CInputGroupText>
+                      </CInputGroup>
+                    </CCol>
+                    <CCol xs={12} sm={4} md={3} lg={3}>
+                      <CInputGroup>
+                        <CFormInput
+                          type="text"
+                          value={optionPrices[cnt]?.price || ''}
+                          onChange={(e) => handleOptionPriceChange(cnt, 'price', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                              e.preventDefault();
+                            }
+                          }}
+                          onWheel={preventScrollOnNumberInput}
+                          placeholder="판매가"
+                        />
+                        <CInputGroupText>원</CInputGroupText>
+                      </CInputGroup>
+                    </CCol>
+                  </CRow>
+                </CCol>
+              ))}
+            </CRow>
+            <CRow className="mt-3">
+              <CCol className="d-flex justify-content-end">
                 <CButton color="primary" onClick={handleGenerateOptionProducts}>
                   생성
                 </CButton>

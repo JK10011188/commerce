@@ -24,6 +24,7 @@ const ProductList = () => {
   const { products, setProduct, removeProduct, addProduct, setProducts, setCommonInfo, setMainProduct, mainProduct, isOptionProductMode, setOptionProductMode} = useProductStore();
   const { makeNewProduct } = useNaverProductActions();
   const [closedProducts, setClosedProducts] = useState([]);
+  const [closedGroups, setClosedGroups] = useState([]); // 옵션 그룹별 토글 상태
   const [optionProductName, setOptionProductName] = useState('');
   const [optionName, setOptionName] = useState('');
   const [optionValuesInput, setOptionValuesInput] = useState('');
@@ -52,11 +53,13 @@ const ProductList = () => {
       setProducts([]);
       setMainProduct(null);
       setClosedProducts([]);
+      setClosedGroups([]);
     } else {
       // 옵션 모드 해제 시에도 비워서 상위(ProductRegister) 초기화 로직이 5개를 재생성하게 함
       setProducts([]);
       setMainProduct(null);
       setClosedProducts([]);
+      setClosedGroups([]);
     }
   }, [isOptionProductMode]);
 
@@ -66,6 +69,36 @@ const ProductList = () => {
         ? prev.filter(id => id !== productId)
         : [...prev, productId]
     );
+  };
+
+  // 옵션 그룹별 토글 핸들러
+  const handleToggleGroup = (groupKey) => {
+    setClosedGroups(prev => 
+      prev.includes(groupKey) 
+        ? prev.filter(key => key !== groupKey)
+        : [...prev, groupKey]
+    );
+  };
+
+  // 옵션 그룹별로 상품 분류 (옵션 모드일 때만 사용)
+  const getGroupedProducts = () => {
+    if (!isOptionProductMode || products.length === 0) {
+      return [];
+    }
+
+    const groupMap = {};
+    products.forEach((product) => {
+      const groupKey = product.options?.[0]?.values?.[0]?.value || '기타';
+      if (!groupMap[groupKey]) {
+        groupMap[groupKey] = [];
+      }
+      groupMap[groupKey].push(product);
+    });
+
+    return Object.entries(groupMap).map(([key, products]) => ({
+      key,
+      products,
+    }));
   };
 
   const handleProductChange = (productId, e) => {
@@ -179,6 +212,8 @@ const ProductList = () => {
 
     setProducts(generatedProducts);
     setMainProduct(generatedProducts[0]);
+    // 그룹 토글 상태 초기화 (모든 그룹을 열린 상태로)
+    setClosedGroups([]);
   };
 
   return (
@@ -248,42 +283,55 @@ const ProductList = () => {
             </CRow>
           </div>
         )}
-        {products.map((product, index) => (
-          <CCard key={product.id} className="mb-3">
-            <CCardHeader className="bg-success bg-opacity-25 border-bottom d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center">
-                <span className="fw-bold">상품 {index + 1} : {product.name ? product.name : ''}</span>
-                {product.name && product.price > 0 && (
-                  <CBadge color="info" className="ms-2">
-                    {new Intl.NumberFormat('ko-KR').format(product.price)}원
-                  </CBadge>
-                )}
-              </div>
-              <div className="d-flex gap-2">
-                {products.length > 1 && (
+        {isOptionProductMode ? (
+          // 옵션 모드: 그룹별 토글로 표시
+          getGroupedProducts().map((group, groupIndex) => {
+            const isGroupClosed = closedGroups.includes(group.key);
+            return (
+              <CCard key={group.key} className="mb-3">
+                <CCardHeader className="bg-primary bg-opacity-25 border-bottom d-flex justify-content-between align-items-center">
+                  <div className="d-flex align-items-center">
+                    <span className="fw-bold">옵션 그룹: {group.key} ({group.products.length}개 상품)</span>
+                  </div>
                   <CButton
-                    color="danger"
+                    color="primary"
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleRemoveProduct(product.id)}
+                    onClick={() => handleToggleGroup(group.key)}
                     className="p-2"
                   >
-                    <CIcon icon={cilTrash} />
+                    <CIcon icon={isGroupClosed ? cilChevronBottom : cilChevronTop} />
                   </CButton>
-                )}
-                <CButton
-                  color="primary"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleToggleProduct(product.id)}
-                  className="p-2"
-                >
-                  <CIcon icon={closedProducts.includes(product.id) ? cilChevronBottom : cilChevronTop} />
-                </CButton>
-              </div>
-            </CCardHeader>
-            {!closedProducts.includes(product.id) && (
-              <CCardBody>
+                </CCardHeader>
+                {!isGroupClosed && (
+                  <CCardBody>
+                    {group.products.map((product, productIndex) => {
+                      const globalIndex = products.findIndex(p => p.id === product.id);
+                      return (
+                        <CCard key={product.id} className="mb-3">
+                          <CCardHeader className="bg-success bg-opacity-25 border-bottom d-flex justify-content-between align-items-center">
+                            <div className="d-flex align-items-center">
+                              <span className="fw-bold">상품 {globalIndex + 1} : {product.name ? product.name : ''}</span>
+                              {product.name && product.price > 0 && (
+                                <CBadge color="info" className="ms-2">
+                                  {new Intl.NumberFormat('ko-KR').format(product.price)}원
+                                </CBadge>
+                              )}
+                            </div>
+                            <div className="d-flex gap-2">
+                              <CButton
+                                color="primary"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleProduct(product.id)}
+                                className="p-2"
+                              >
+                                <CIcon icon={closedProducts.includes(product.id) ? cilChevronBottom : cilChevronTop} />
+                              </CButton>
+                            </div>
+                          </CCardHeader>
+                          {!closedProducts.includes(product.id) && (
+                            <CCardBody>
                 <CRow className="mb-3">
                   <CFormLabel htmlFor={`name-${product.id}`} className="col-sm-2 col-form-label">상품명</CFormLabel>
                   <CCol sm={10}>
@@ -376,14 +424,157 @@ const ProductList = () => {
                   </CCol>
                 </CRow>
                 {/* 상품 이미지 업로드 영역 */}
-                {/* 상품 이미지 업로드 영역 */}
                 <ProductImageUploader productId={product.id} />
                 {/* 상품 옵션 영역: 옵션 모드에서도 기존 UI를 그대로 표시 (읽기전용) */}
-                <ProductOptions productId={product.id} index={index} readOnly={isOptionProductMode} />
-              </CCardBody>
-            )}
-          </CCard>
-        ))}
+                <ProductOptions productId={product.id} index={globalIndex} readOnly={isOptionProductMode} />
+                            </CCardBody>
+                          )}
+                        </CCard>
+                      );
+                    })}
+                  </CCardBody>
+                )}
+              </CCard>
+            );
+          })
+        ) : (
+          // 일반 모드: 기존처럼 개별 상품으로 표시
+          products.map((product, index) => (
+            <CCard key={product.id} className="mb-3">
+              <CCardHeader className="bg-success bg-opacity-25 border-bottom d-flex justify-content-between align-items-center">
+                <div className="d-flex align-items-center">
+                  <span className="fw-bold">상품 {index + 1} : {product.name ? product.name : ''}</span>
+                  {product.name && product.price > 0 && (
+                    <CBadge color="info" className="ms-2">
+                      {new Intl.NumberFormat('ko-KR').format(product.price)}원
+                    </CBadge>
+                  )}
+                </div>
+                <div className="d-flex gap-2">
+                  {products.length > 1 && (
+                    <CButton
+                      color="danger"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveProduct(product.id)}
+                      className="p-2"
+                    >
+                      <CIcon icon={cilTrash} />
+                    </CButton>
+                  )}
+                  <CButton
+                    color="primary"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleToggleProduct(product.id)}
+                    className="p-2"
+                  >
+                    <CIcon icon={closedProducts.includes(product.id) ? cilChevronBottom : cilChevronTop} />
+                  </CButton>
+                </div>
+              </CCardHeader>
+              {!closedProducts.includes(product.id) && (
+                <CCardBody>
+                  <CRow className="mb-3">
+                    <CFormLabel htmlFor={`name-${product.id}`} className="col-sm-2 col-form-label">상품명</CFormLabel>
+                    <CCol sm={10}>
+                      <CFormInput
+                        type="text"
+                        id={`name-${product.id}`}
+                        name="name"
+                        value={product.name || ''}
+                        onChange={(e) => handleProductChange(product.id, e)}
+                        placeholder="상품명을 입력하세요(최대 100자)"
+                        maxLength={100}
+                      />
+                      {mainProduct?.options.length > 0 && mainProduct?.price > 0 && (
+                        <div className="mt-2 text-muted small">
+                          추가상품: '곧 세일 끝 하나 더!' - {
+                            mainProduct.options[0]?.values.length > 1 
+                              ? `'${mainProduct.options[0].values.map(v => v.value).join(', ')}'`
+                              : `'${mainProduct.options[0]?.name} ${mainProduct.options[0]?.values[0]?.value}'`
+                          } ({new Intl.NumberFormat('ko-KR').format(mainProduct.price)}원)
+                        </div>
+                      )}
+                    </CCol>
+                  </CRow>
+
+                  <CRow className="mb-3">
+                    <CFormLabel className="col-sm-2 col-form-label">가격 정보</CFormLabel>
+                    <CCol sm={10}>
+                      <CRow className="g-3">
+                        <CCol sm={4}>
+                          <CFormLabel htmlFor={`regularPrice-${product.id}`}>정상가</CFormLabel>
+                          <CInputGroup>
+                            <CFormInput
+                              type="text"
+                              id={`regularPrice-${product.id}`}
+                              name="regularPrice"
+                              value={product.regularPrice ? product.regularPrice : ''}
+                              onChange={(e) => handleProductChange(product.id, e)}
+                              onKeyDown={(e) => {
+                                if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                                  e.preventDefault();
+                                }
+                              }}
+                              onWheel={preventScrollOnNumberInput}
+                              placeholder="정상가 입력"
+                            />
+                            <CInputGroupText>원</CInputGroupText>
+                          </CInputGroup>
+                        </CCol>
+                        <CCol sm={4}>
+                          <CFormLabel htmlFor={`discountRate-${product.id}`}>할인율</CFormLabel>
+                          <CInputGroup>
+                            <CFormInput
+                              type="text"
+                              id={`discountRate-${product.id}`}
+                              name="discountRate"
+                              value={product.discountRate}
+                              onChange={(e) => handleProductChange(product.id, e)}
+                              onKeyDown={(e) => {
+                                if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                                  e.preventDefault();
+                                }
+                              }}
+                              onWheel={preventScrollOnNumberInput}
+                              placeholder="할인율 입력"
+                            />
+                            <CInputGroupText>%</CInputGroupText>
+                          </CInputGroup>
+                        </CCol>
+                        <CCol sm={4}>
+                          <CFormLabel htmlFor={`price-${product.id}`}>판매가</CFormLabel>
+                          <CInputGroup>
+                            <CFormInput
+                              type="text"
+                              id={`price-${product.id}`}
+                              name="price"
+                              value={product.price ? product.price : ''}
+                              onChange={(e) => handleProductChange(product.id, e)}
+                              onKeyDown={(e) => {
+                                if (!/[\d\b]/.test(e.key) && e.key !== 'Backspace') {
+                                  e.preventDefault();
+                                }
+                              }}
+                              onWheel={preventScrollOnNumberInput}
+                              placeholder="판매가 입력"
+                            />
+                            <CInputGroupText>원</CInputGroupText>
+                          </CInputGroup>
+                        </CCol>
+                      </CRow>
+                    </CCol>
+                  </CRow>
+                  {/* 상품 이미지 업로드 영역 */}
+                  <ProductImageUploader productId={product.id} />
+                  {/* 상품 옵션 영역 */}
+                  <ProductOptions productId={product.id} index={index} readOnly={false} />
+                </CCardBody>
+              )}
+            </CCard>
+          ))
+        )}
       </CCardBody>
     </CCard>
   );

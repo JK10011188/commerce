@@ -43,6 +43,13 @@ export const useNaverProductActions = () => {
     if (!response) {
       throw new Error(`${context} 응답이 없습니다.`);
     }
+    // 서버에서 500 에러로 반환된 경우
+    if (response.error) {
+      const errorMsg = typeof response.error === 'string' 
+        ? response.error 
+        : response.error.message || `${context} 요청이 실패했습니다.`;
+      throw new Error(errorMsg);
+    }
     if (response.result === 'error') {
       throw new Error(response.message || `${context} 요청이 실패했습니다.`);
     }
@@ -173,32 +180,15 @@ export const useNaverProductActions = () => {
     }
   };
 
-  const registerProduct = async () => {
+  const registerProduct = async (progressHandler) => {
     try {
       store.setLoading(true)
 
       // 이름이 있는 상품들만 필터링
       const validProducts = store.products.filter(product => product.name && product.price > 0);
-      
-      // 첫 번째 상품의 대표 이미지를 제외한 나머지 이미지들
-      const additionalImages = validProducts[0]?.additionalImages
-        ?.filter(img => !img.isMain)
-        ?.map(img => ({
-          ...img,
-          id: crypto.randomUUID() // 새로운 ID 생성
-        })) || [];
-
-      // 나머지 상품들의 이미지 설정
-      const updatedProducts = validProducts.map((product, index) => {
-        if (index === 0) return product; // 첫 번째 상품은 그대로 유지
-        
-        // 대표 이미지만 유지하고 나머지 이미지 추가
-        const mainImage = product.additionalImages?.find(img => img.isMain) || null;
-        return {
-          ...product,
-          additionalImages: mainImage ? [mainImage, ...additionalImages] : additionalImages
-        };
-      });
+      if (validProducts.length === 0) {
+        throw new Error('등록할 상품이 없습니다.');
+      }
 
       // 이미지 변환 함수
       const convertImageToBase64 = async (file) => {
@@ -210,21 +200,7 @@ export const useNaverProductActions = () => {
         });
       };
 
-      // 상품 이미지 변환
-      const productsWithBase64Images = await Promise.all(updatedProducts.map(async (product) => {
-        const convertedImages = await Promise.all(
-          (product.additionalImages || []).map(async (img) => {
-            if (img.file instanceof File) {
-              const base64Data = await convertImageToBase64(img.file);
-              return { ...img, file: base64Data };
-            }
-            return img;
-          })
-        );
-        return { ...product, additionalImages: convertedImages };
-      }));
-
-      // 상세 이미지 변환
+      // 상세 이미지 변환 (1회)
       const convertedDetailImages = await Promise.all(
         (store.detailImages || []).map(async (img) => {
           if (img.file instanceof File) {
@@ -235,26 +211,218 @@ export const useNaverProductActions = () => {
         })
       );
 
-      const productData = {
-        products: productsWithBase64Images,
-        commonInfo: store.commonInfo,
-        selectedProductAttributes: store.selectedProductAttributes,
-        asInfo: store.asInfo,
-        deliveryInfo: store.deliveryInfo,
-        tags: store.tags,
-        detailImages: convertedDetailImages.map(image => image.file),
-        category: store.selectedCategory,
-        providedNotice: store.selectedProductProvidedNotice,
-        mainProduct: store.mainProduct,
-      }
+      // 첫 번째 상품의 대표 이미지를 제외한 나머지 이미지들 (공유용)
+      const baseAdditionalImages = validProducts[0]?.additionalImages
+        ?.filter(img => !img.isMain)
+        ?.map(img => ({
+          ...img,
+          id: crypto.randomUUID() // 새로운 ID 생성
+        })) || [];
 
-      const res = await productService.registerProduct({accName: selectedAccount.accName, productData: productData});
-      const validatedRes = validateResponse(res, '상품 등록');
-      
-      if (validatedRes) {
+      // 상품 이미지 변환 및 공유 이미지 적용
+      const productsWithBase64Images = await Promise.all(validProducts.map(async (product) => {
+        const mainImage = product.additionalImages?.find(img => img.isMain) || null;
+        const mergedImages = mainImage ? [mainImage, ...baseAdditionalImages] : baseAdditionalImages;
+        const convertedImages = await Promise.all(
+          (mergedImages || []).map(async (img) => {
+            if (img.file instanceof File) {
+              const base64Data = await convertImageToBase64(img.file);
+              return { ...img, file: base64Data };
+            }
+            return img;
+          })
+        );
+        return { ...product, additionalImages: convertedImages };
+      }));
+
+      // 옵션 상품 모드 여부에 따라 처리 분기
+      if (store.isOptionProductMode) {
+        // 옵션값 그룹별로 묶기 (첫 옵션의 첫 값으로 그룹), 순서를 유지
+        const groupMap = {};
+        const keyOrder = [];
+        productsWithBase64Images.forEach((product, idx) => {
+          const key = product.options?.[0]?.values?.[0]?.value ?? `group-${idx}`;
+          if (!groupMap[key]) {
+            groupMap[key] = [];
+            keyOrder.push(key);
+          }
+          groupMap[key].push(product);
+        });
+
+        const results = [];
+
+        for (let i = 0; i < keyOrder.length; i++) {
+          const key = keyOrder[i];
+          const groupProducts = groupMap[key];
+          const groupLabel = key; // 옵션값을 라벨로 사용
+
+          // 진행 알림
+          progressHandler?.onGroupStart?.({
+            current: i + 1,
+            total: keyOrder.length,
+            label: groupLabel,
+          });
+
+          const productData = {
+            products: groupProducts,
+            commonInfo: store.commonInfo,
+            selectedProductAttributes: store.selectedProductAttributes,
+            asInfo: store.asInfo,
+            deliveryInfo: store.deliveryInfo,
+            tags: store.tags,
+            detailImages: convertedDetailImages.map(image => image.file),
+            category: store.selectedCategory,
+            providedNotice: store.selectedProductProvidedNotice,
+            mainProduct: {
+              ...groupProducts[0],
+              // 메인 상품 이미지는 전체 첫 상품의 이미지 기준으로 통일
+              additionalImages: productsWithBase64Images[0]?.additionalImages || [],
+            },
+          }
+
+          try {
+            const res = await productService.registerProduct({accName: selectedAccount.accName, productData});
+            
+            // 서버에서 500 에러로 반환된 경우
+            if (res.error) {
+              const serverError = typeof res.error === 'string' 
+                ? res.error 
+                : res.error.message || JSON.stringify(res.error);
+              
+              console.error(`[옵션 상품 등록 실패 - 서버 에러] 그룹: ${groupLabel}`, {
+                groupLabel,
+                serverResponse: res,
+                error: serverError,
+                productCount: groupProducts.length,
+                productNames: groupProducts.map(p => p.name)
+              });
+              
+              const errorResult = {
+                product: groupProducts[0],
+                error: serverError
+              };
+              results.push(errorResult);
+              
+              progressHandler?.onGroupComplete?.({
+                label: groupLabel,
+                success: false,
+                error: serverError
+              });
+              continue;
+            }
+            
+            const validatedRes = validateResponse(res, '상품 등록');
+            
+            // 서버 응답이 배열인 경우 (여러 상품 등록 결과)
+            if (Array.isArray(validatedRes)) {
+              results.push(...validatedRes);
+              
+              // 배열 내에 에러가 있는지 확인
+              const hasError = validatedRes.some(r => r.error);
+              if (hasError) {
+                const errorItems = validatedRes.filter(r => r.error);
+                const errorMessages = errorItems.map(r => {
+                  const errMsg = typeof r.error === 'string' ? r.error : JSON.stringify(r.error);
+                  return errMsg;
+                }).join('; ');
+                
+                console.error(`[옵션 상품 등록 실패 - 상품별 에러] 그룹: ${groupLabel}`, {
+                  groupLabel,
+                  errors: errorItems,
+                  errorMessages
+                });
+                
+                progressHandler?.onGroupComplete?.({
+                  label: groupLabel,
+                  success: false,
+                  error: errorMessages
+                });
+              } else {
+                console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
+                  groupLabel,
+                  productCount: validatedRes.length
+                });
+                
+                progressHandler?.onGroupComplete?.({
+                  label: groupLabel,
+                  success: true,
+                  error: null
+                });
+              }
+            } else {
+              // 단일 결과
+              results.push(validatedRes);
+              const hasError = validatedRes.error;
+              
+              if (hasError) {
+                const errMsg = typeof hasError === 'string' ? hasError : JSON.stringify(hasError);
+                console.error(`[옵션 상품 등록 실패] 그룹: ${groupLabel}`, {
+                  groupLabel,
+                  error: errMsg,
+                  result: validatedRes
+                });
+              } else {
+                console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
+                  groupLabel
+                });
+              }
+              
+              progressHandler?.onGroupComplete?.({
+                label: groupLabel,
+                success: !hasError,
+                error: hasError ? (typeof hasError === 'string' ? hasError : JSON.stringify(hasError)) : null
+              });
+            }
+          } catch (error) {
+            // validateResponse에서 throw된 에러 또는 네트워크 에러
+            const errorMessage = error.message || error.toString();
+            
+            console.error(`[옵션 상품 등록 실패 - 예외 발생] 그룹: ${groupLabel}`, {
+              groupLabel,
+              error: errorMessage,
+              errorStack: error.stack,
+              productCount: groupProducts.length,
+              productNames: groupProducts.map(p => p.name)
+            });
+            
+            const errorResult = {
+              product: groupProducts[0],
+              error: errorMessage
+            };
+            results.push(errorResult);
+            
+            progressHandler?.onGroupComplete?.({
+              label: groupLabel,
+              success: false,
+              error: errorMessage
+            });
+          }
+        }
+
         store.resetState();
+        return results;
+      } else {
+        // 기존(비 옵션 상품) 단일 요청 처리 (진행 표시 없음)
+        const productData = {
+          products: productsWithBase64Images,
+          commonInfo: store.commonInfo,
+          selectedProductAttributes: store.selectedProductAttributes,
+          asInfo: store.asInfo,
+          deliveryInfo: store.deliveryInfo,
+          tags: store.tags,
+          detailImages: convertedDetailImages.map(image => image.file),
+          category: store.selectedCategory,
+          providedNotice: store.selectedProductProvidedNotice,
+          mainProduct: store.mainProduct || productsWithBase64Images[0],
+        }
+
+        const res = await productService.registerProduct({accName: selectedAccount.accName, productData});
+        const validatedRes = validateResponse(res, '상품 등록');
+        if (validatedRes) {
+          store.resetState();
+        }
+        return validatedRes;
       }
-      return validatedRes;
     } catch (err) { 
       const errorMessage = createErrorMessage('등록', err);
       handleError(err, '상품 등록');

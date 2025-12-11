@@ -4,13 +4,19 @@ import {
   CCard,
   CCardBody,
   CCardHeader,
+  CModal,
+  CModalBody,
+  CModalHeader,
+  CModalTitle,
+  CModalFooter,
   CContainer,
   CForm,
   CAlert,
-  CSpinner
+  CSpinner,
+  CProgress
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
-import { cilSearch } from '@coreui/icons'
+import { cilSearch, cilCheckCircle, cilX } from '@coreui/icons'
 import CategorySelector from './components/CategorySelector'
 import BasicInfoCard from './components/BasicInfoCard'
 import TagsCard from './components/TagsCard'
@@ -39,6 +45,15 @@ const ProductRegisterForm = memo(() => {
   const [validationError, setValidationError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [showProgress, setShowProgress] = useState(false);
+  const [progressInfo, setProgressInfo] = useState({ 
+    current: 0, 
+    total: 0, 
+    label: '',
+    groupResults: [] // { label: '옵션값', status: 'success' | 'error' | 'pending', error: '에러메시지' }
+  });
+  const [showDataPreview, setShowDataPreview] = useState(false);
+  const [dataPreview, setDataPreview] = useState('');
 
   useEffect(() => {
     resetState();
@@ -146,8 +161,64 @@ const ProductRegisterForm = memo(() => {
     if (validateForm()) {
       setIsSubmitting(true);
       setNotifications([]);
+      if (isOptionProductMode) {
+        setShowProgress(true);
+        setProgressInfo({ current: 0, total: 0, label: '', groupResults: [] });
+      }
       try {
-        const results = await registerProduct();
+        // 옵션 상품 모드일 때는 먼저 데이터 포맷 미리보기 팝업만 노출
+        if (isOptionProductMode) {
+          const summarizeImage = (img) => {
+            if (!img) return null;
+            const fileStr = typeof img.file === 'string'
+              ? `${img.file.slice(0, 30)}...`
+              : '<File>';
+            return {
+              id: img.id,
+              isMain: img.isMain,
+              file: fileStr,
+            };
+          };
+
+          const groupMap = {};
+          const keyOrder = [];
+          products.forEach((p, idx) => {
+            const key = p.options?.[0]?.values?.[0]?.value ?? `group-${idx}`;
+            if (!groupMap[key]) {
+              groupMap[key] = [];
+              keyOrder.push(key);
+            }
+            groupMap[key].push(p);
+          });
+
+          const payloadPreview = keyOrder.map((key, idx) => {
+            const groupProducts = groupMap[key];
+            return {
+              groupKey: `${idx + 1}`,
+              mainProduct: {
+                name: groupProducts[0]?.name,
+                options: groupProducts[0]?.options,
+                additionalImages: (groupProducts[0]?.additionalImages || []).map(summarizeImage),
+              },
+              products: groupProducts.map((p) => ({
+                name: p.name,
+                regularPrice: p.regularPrice,
+                price: p.price,
+                discountRate: p.discountRate,
+                options: p.options,
+                additionalImages: (p.additionalImages || []).map(summarizeImage),
+              })),
+              detailImages: (detailImages || []).map(summarizeImage),
+            }
+          });
+
+          setDataPreview(JSON.stringify(payloadPreview, null, 2));
+          setShowDataPreview(true);
+          return; // 실제 등록은 일시 중지
+        }
+
+        const handler = undefined; // 일반 모드: 진행 콜백 없음
+        const results = await registerProduct(handler);
 
         if(results && results.length > 0) {
           results.forEach(result => {
@@ -181,6 +252,7 @@ const ProductRegisterForm = memo(() => {
         });
       } finally {
         setIsSubmitting(false);
+        setShowProgress(false);
       }
     }
   };
@@ -274,6 +346,228 @@ const ProductRegisterForm = memo(() => {
       </CCard>
       {/* 미리보기 모달 */}
       <PreviewModal />
+
+      {/* 등록 진행 모달 */}
+      <CModal visible={showProgress} backdrop="static" keyboard={false} alignment="center">
+        <CModalHeader>
+          <CModalTitle>옵션 상품 등록 진행</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {/* 프로그레스바 */}
+          <div className="mb-4">
+            <div className="d-flex justify-content-between mb-2">
+              <span className="fw-bold">진행 상황</span>
+              <span>{progressInfo.current} / {progressInfo.total || 0} 그룹</span>
+            </div>
+            <CProgress 
+              value={progressInfo.total > 0 ? (progressInfo.current / progressInfo.total) * 100 : 0}
+              color="primary"
+              className="mb-2"
+            />
+            {progressInfo.label && progressInfo.groupResults.find(r => r.label === progressInfo.label)?.status === 'pending' && (
+              <div className="text-muted small">
+                <CSpinner size="sm" className="me-2" />
+                현재 처리 중: {progressInfo.label}
+              </div>
+            )}
+          </div>
+
+          {/* 그룹별 결과 목록 */}
+          <div className="border-top pt-3">
+            <div className="fw-bold mb-3">그룹별 등록 결과</div>
+            {(!progressInfo.groupResults || progressInfo.groupResults.length === 0) ? (
+              <div className="text-muted text-center py-3">등록 대기 중...</div>
+            ) : (
+              <div className="list-group">
+                {progressInfo.groupResults.map((result, idx) => (
+                  <div 
+                    key={idx} 
+                    className="d-flex align-items-center justify-content-between p-2 border-bottom"
+                  >
+                    <div className="d-flex align-items-center">
+                      {result.status === 'success' && (
+                        <CIcon icon={cilCheckCircle} className="text-success me-2" size="lg" />
+                      )}
+                      {result.status === 'error' && (
+                        <CIcon icon={cilX} className="text-danger me-2" size="lg" />
+                      )}
+                      {result.status === 'pending' && (
+                        <CSpinner size="sm" className="me-2" />
+                      )}
+                      <span className="fw-medium">{result.label}</span>
+                    </div>
+                    {result.status === 'error' && result.error && (
+                      <div className="text-danger small ms-3" style={{ maxWidth: '60%', wordBreak: 'break-word' }}>
+                        {result.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CModalBody>
+        {progressInfo.current === progressInfo.total && progressInfo.total > 0 && (
+          <CModalFooter>
+            <CButton 
+              color="primary" 
+              onClick={() => {
+                setShowProgress(false);
+                setIsSubmitting(false);
+              }}
+            >
+              닫기
+            </CButton>
+          </CModalFooter>
+        )}
+      </CModal>
+
+      {/* 데이터 포맷 미리보기 모달 (옵션 상품 등록 모드) */}
+      <CModal visible={showDataPreview} onClose={() => setShowDataPreview(false)} size="lg" scrollable>
+        <CModalHeader>
+          <CModalTitle>옵션 상품 등록 요청 포맷 (미리보기)</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: '#f8f9fa', padding: '12px', borderRadius: '4px' }}>
+{dataPreview}
+          </pre>
+          <div className="text-muted small mt-2">
+            실제 등록은 이 미리보기 확인 후 진행됩니다.
+          </div>
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => {
+            setShowDataPreview(false);
+            setIsSubmitting(false);
+          }}>
+            취소
+          </CButton>
+          <CButton 
+            color="primary" 
+            onClick={async () => {
+              // 미리보기 팝업 닫기
+              setShowDataPreview(false);
+              
+              // 프로그레스바 팝업으로 전환
+              setShowProgress(true);
+              setProgressInfo({ 
+                current: 0, 
+                total: 0, 
+                label: '',
+                groupResults: []
+              });
+              
+              try {
+                // 진행 콜백 핸들러
+                const progressHandler = {
+                  onGroupStart: ({ current, total, label }) => {
+                    setProgressInfo(prev => {
+                      const newGroupResults = [...(prev.groupResults || [])];
+                      // 새 그룹 시작 시 pending 상태로 추가
+                      if (!newGroupResults.find(r => r.label === label)) {
+                        newGroupResults.push({ label, status: 'pending', error: null });
+                      }
+                      return {
+                        ...prev,
+                        current,
+                        total,
+                        label,
+                        groupResults: newGroupResults
+                      };
+                    });
+                  },
+                  onGroupComplete: ({ label, success, error }) => {
+                    console.log(`[옵션 상품 등록] 그룹 완료:`, { label, success, error });
+                    setProgressInfo(prev => {
+                      const currentGroupResults = prev.groupResults || [];
+                      const newGroupResults = currentGroupResults.map(r => 
+                        r.label === label 
+                          ? { label, status: success ? 'success' : 'error', error: error || null }
+                          : r
+                      );
+                      return {
+                        ...prev,
+                        groupResults: newGroupResults
+                      };
+                    });
+                  }
+                };
+                
+                const results = await registerProduct(progressHandler);
+                
+                if(results && results.length > 0) {
+                  results.forEach((result, idx) => {
+                    const groupLabel = result.product?.options?.[0]?.values?.[0]?.value || `그룹 ${idx + 1}`;
+                    
+                    if (result.error) {
+                      // 서버에서 받은 에러 메시지 파싱
+                      let errorMessage = '';
+                      if (typeof result.error === 'string') {
+                        errorMessage = result.error;
+                      } else if (result.error?.message) {
+                        errorMessage = result.error.message;
+                      } else if (result.error?.error) {
+                        errorMessage = typeof result.error.error === 'string' 
+                          ? result.error.error 
+                          : JSON.stringify(result.error.error);
+                      } else {
+                        errorMessage = JSON.stringify(result.error);
+                      }
+                      
+                      console.error(`[옵션 상품 등록 실패] 그룹: ${groupLabel}`, {
+                        groupLabel,
+                        product: result.product?.name,
+                        serverError: result.error,
+                        parsedErrorMessage: errorMessage,
+                        fullResult: result
+                      });
+                      
+                      addNotification({
+                        type: 'error',
+                        message: `${result.product?.name || groupLabel} 등록 실패: ${errorMessage}`
+                      });
+                    } else {
+                      console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
+                        groupLabel,
+                        product: result.product?.name,
+                        result: result
+                      });
+                      
+                      addNotification({
+                        type: 'success',
+                        message: `${result.product?.name || groupLabel} 등록 완료`
+                      });
+                    }
+                  });
+                  
+                  if (results.every(result => !result.error)) {
+                    resetState();
+                  }
+                } else if(results){
+                  const errorMessage = results.error || '등록 중 오류가 발생했습니다.';
+                  console.error('[옵션 상품 등록 실패]', results);
+                  addNotification({
+                    type: 'error',
+                    message: errorMessage
+                  });
+                }
+              } catch (error) {
+                console.error('[옵션 상품 등록 예외 발생]', error);
+                addNotification({
+                  type: 'error',
+                  message: error.message || '등록 중 오류가 발생했습니다.'
+                });
+              } finally {
+                setIsSubmitting(false);
+                // 모든 그룹이 완료되면 프로그레스바는 유지 (닫기 버튼으로 닫을 수 있음)
+              }
+            }}
+            disabled={isSubmitting}
+          >
+            확인 및 등록
+          </CButton>
+        </CModalFooter>
+      </CModal>
     </CForm>
   );
 });

@@ -203,8 +203,10 @@ const MarginCalculator = () => {
       let marginRate = 0
       let settlementPrice = 0 // 정산가
       
-      // 최대 1000번 반복 (무한 루프 방지)
-      for (let i = 0; i < 1000; i++) {
+      // 공급가에 따라 최대 반복 횟수 조정 (큰 숫자 대응)
+      const maxIterations = supplyPrice >= 1000000 ? 1000000 : (supplyPrice >= 100000 ? 100000 : 10000)
+      
+      for (let i = 0; i < maxIterations; i++) {
         // 정산가 계산: (판매가 + 택배비) * (1 - 수수료율)
         settlementPrice = sellingPrice * (1 - commissionRate) + actualShippingFee
         
@@ -262,8 +264,10 @@ const MarginCalculator = () => {
       let marginRate = 0
       let settlementPrice = 0 // 정산가
       
-      // 최대 1000번 반복 (무한 루프 방지)
-      for (let i = 0; i < 1000; i++) {
+      // 공급가에 따라 최대 반복 횟수 조정 (큰 숫자 대응)
+      const maxIterations = supplyPrice >= 1000000 ? 1000000 : (supplyPrice >= 100000 ? 100000 : 10000)
+      
+      for (let i = 0; i < maxIterations; i++) {
         // 정산가 계산: 판매가 * (1 - 수수료율)
         settlementPrice = sellingPrice * (1 - commissionRate)
         

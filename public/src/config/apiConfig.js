@@ -30,13 +30,10 @@ export const APP_ENV = getEnv('NODE_ENV', 'development');
  * 환경별 API 기본 URL 설정
  */
 const API_BASE_URLS = {
-  // development: 'http://127.0.0.1:5001/project52-4722c/us-central1/app',
-  // development: 'https://us-central1-project52-4722c.cloudfunctions.net/app',
+  // development: 'http://127.0.0.1:5001/commerse-interface/asia-northeast3/app',
+  // production: 'http://127.0.0.1:5001/commerse-interface/asia-northeast3/app',
   development: 'https://asia-northeast3-commerse-interface.cloudfunctions.net/app',
-  
   production: 'https://asia-northeast3-commerse-interface.cloudfunctions.net/app',
-  // development: 'http://127.0.0.1:5001/commerse-interface/us-central1/app',
-  // production: 'https://us-central1-commerse-interface.cloudfunctions.net/app'
 };
 
 /**
@@ -84,6 +81,7 @@ export const API_ENDPOINTS = {
   NAVER: {
     SEARCH_1ST_CATEGORIES: '/NsearchRootCategory',
     SEARCH_SUB_CATEGORIES: '/NsearchCategory',
+    SEARCH_CATEGORY_DETAIL: '/NsearchCategoryDetail',
     SEARCH_TAG_SUGGESTIONS: '/getRecommendTags',
     SEARCH_TAG_RESTRICTIONS: '/getTagRestrictions',
     SEARCH_PRODUCT_ATTRIBUTES: '/NsearchAttribute',

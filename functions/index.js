@@ -2628,10 +2628,7 @@ app.post("/NsearchCategory", async (req, res) => {
 
 // 네이버 카테고리 조회
 async function NsearchCategory(categoryCode, accessToken) {
-  console.log("네이버 카테고리 상세 조회");
-
   try {
-
     const response = await fetch(
       `https://api.commerce.naver.com/external/v1/categories/${categoryCode}`,
       {
@@ -2648,14 +2645,171 @@ async function NsearchCategory(categoryCode, accessToken) {
       return category;
     } else {
       const errorMessage = await response.text();
-      console.error("Error:", errorMessage);
       return null;
     }
   } catch (error) {
-    console.error("API 요청 에러:", error);
     return null;
   }
 };
+
+app.post("/NsearchCategoryDetail", async (req, res) => {
+  const categoryCode = req.body.categoryCode;
+
+  let accData = req.body.accName;
+
+  await db
+    .collection("Accounts")
+    .doc(req.body.accName)
+    .get()
+    .then((doc) => {
+      if (!doc.exists) {
+        throw new Error("ACC 데이터 조회 실패");
+      } else {
+        accData = doc.data();
+      }
+    })
+    .catch((err) => {
+      throw new Error("ACC 데이터 조회 실패");
+    });
+
+  const n_id = accData.n_id;
+  const n_sk = accData.n_sk;
+
+  try {
+    const accessToken = await getAccessToken(n_id, n_sk, "SELF");
+    const category = await NsearchCategory(categoryCode, accessToken.access_token);
+
+    if (!category) {
+      return res.status(500).json({
+        result: "error",
+        message: "카테고리 상세 조회 실패",
+      });
+    }
+
+    const isUnitPriceCategory = Array.isArray(category.exceptionalCategories) &&
+      category.exceptionalCategories.includes("UNIT_PRICE");
+
+    return res.json({
+      ...category,
+      isUnitPriceCategory,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      result: "error",
+      message: "카테고리 상세 조회 실패",
+    });
+  }
+});
+
+const UNIT_PRICE_INDICATION_UNITS = new Set([
+  "g",
+  "kg",
+  "ml",
+  "L",
+  "cm",
+  "m",
+  "개",
+  "개입",
+  "매",
+  "매입",
+  "정",
+  "캡슐",
+  "구미",
+  "포",
+  "구",
+]);
+
+function normalizeUnitCapacityInfo(info) {
+  return {
+    unitPriceYn: info?.unitPriceYn === true,
+    totalCapacityValue: info?.totalCapacityValue ?? "",
+    unitCapacity: info?.unitCapacity ?? "",
+    indicationUnit: info?.indicationUnit ?? "",
+  };
+}
+
+async function getRecommendedUnitPriceGuide(categoryCode, accessToken) {
+  try {
+    console.log("[Naver][UnitPriceGuide] request", { categoryCode });
+
+    const response = await fetch(
+      `https://api.commerce.naver.com/external/v2/standard-purchase-option-guides?categoryId=${categoryCode}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.log("[Naver][UnitPriceGuide] response error", {
+        categoryCode,
+        status: response.status,
+        body: errorBody,
+      });
+      return {
+        unitPriceValue: "",
+        unitPriceText: "",
+      };
+    }
+
+    const guideData = await response.json();
+    console.log("[Naver][UnitPriceGuide] raw response", {
+      categoryCode,
+      body: guideData,
+    });
+
+    const optionGuides = Array.isArray(guideData?.optionGuides)
+      ? guideData.optionGuides
+      : [];
+
+    const matchedGuide = optionGuides.find((guide) => (
+      guide?.useUnitPrice === true &&
+      guide?.unitPriceValue !== null &&
+      guide?.unitPriceValue !== undefined &&
+      typeof guide?.unitPriceText === "string" &&
+      guide.unitPriceText.trim() !== ""
+    ));
+
+    if (!matchedGuide) {
+      console.log("[Naver][UnitPriceGuide] parsed response", {
+        categoryCode,
+        unitPriceValue: "",
+        unitPriceText: "",
+      });
+      return {
+        unitPriceValue: "",
+        unitPriceText: "",
+      };
+    }
+
+    const result = {
+      unitPriceValue: String(matchedGuide.unitPriceValue ?? ""),
+      unitPriceText: UNIT_PRICE_INDICATION_UNITS.has(matchedGuide.unitPriceText)
+        ? matchedGuide.unitPriceText
+        : "",
+    };
+
+    console.log("[Naver][UnitPriceGuide] parsed response", {
+      categoryCode,
+      ...result,
+    });
+
+    return result;
+  } catch (error) {
+    console.log("[Naver][UnitPriceGuide] request failed", {
+      categoryCode,
+      message: error?.message,
+    });
+    return {
+      unitPriceValue: "",
+      unitPriceText: "",
+    };
+  }
+}
 
 // 네이버 카테고리별 속성 조회
 app.post("/NsearchAttribute", async (req, res) => {
@@ -2686,14 +2840,32 @@ app.post("/NsearchAttribute", async (req, res) => {
   const n_sk = accData.n_sk; // Secret Key
 
   const accessToken = await getAccessToken(n_id, n_sk, "SELF");
-  // 
-
-  getAttributesWithValues(categoryCode, accessToken.access_token).then(
-    (attributesWithValues) => {
-      // console.log(JSON.stringify(attributesWithValues, null, 2));
-      res.json(attributesWithValues);
-    }
+  const category = await NsearchCategory(categoryCode, accessToken.access_token);
+  const exceptionalCategories = Array.isArray(category?.exceptionalCategories)
+    ? category.exceptionalCategories
+    : [];
+  const isUnitPriceCategory = exceptionalCategories.includes("UNIT_PRICE");
+  const recommendedUnitPriceGuide = await getRecommendedUnitPriceGuide(
+    categoryCode,
+    accessToken.access_token
   );
+
+  const attributesWithValues = await getAttributesWithValues(categoryCode, accessToken.access_token);
+
+  res.json({
+    attributes: attributesWithValues,
+    exceptionalCategories,
+    isUnitPriceCategory,
+    unitPriceValue: recommendedUnitPriceGuide.unitPriceValue,
+    unitPriceText: recommendedUnitPriceGuide.unitPriceText,
+  });
+
+  console.log("[Naver][NsearchAttribute] unit price defaults", {
+    categoryCode,
+    isUnitPriceCategory,
+    unitPriceValue: recommendedUnitPriceGuide.unitPriceValue,
+    unitPriceText: recommendedUnitPriceGuide.unitPriceText,
+  });
 
   // 카테고리별 속성, 속성 값 조회 / 매칭 함수
   async function getAttributesWithValues(categoryCode, accessToken) {
@@ -2823,6 +2995,8 @@ app.post("/NaddProducts", async (req, res) => {
   );
   
   const category = await NsearchCategory(reqData.category.id, accessToken.access_token);
+  const isUnitPriceCategory = Array.isArray(category?.exceptionalCategories) &&
+    category.exceptionalCategories.includes("UNIT_PRICE");
   let productCertificationInfos = [];
   let certificationTargetExcludeContent = {};
   if(category.exceptionalCategories.length > 0) {
@@ -3039,6 +3213,49 @@ for (const product of products) {
       if(productCertificationInfos.length > 0) {
         // requestData.originProduct.detailAttribute.productCertificationInfos = productCertificationInfos;
         requestData.originProduct.detailAttribute.certificationTargetExcludeContent = certificationTargetExcludeContent;
+      }
+
+      const unitCapacityInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+      const shouldIncludeUnitCapacity = isUnitPriceCategory || unitCapacityInfo.unitPriceYn;
+
+      if (shouldIncludeUnitCapacity) {
+        if (!unitCapacityInfo.unitPriceYn) {
+          if (isUnitPriceCategory) {
+            throw new Error(`${product.name} 단위가격 입력이 필요합니다.`);
+          }
+        } else {
+          const totalCapacityValueText = String(unitCapacityInfo.totalCapacityValue).trim();
+          const unitCapacityText = String(unitCapacityInfo.unitCapacity).trim();
+
+          if (!/^\d+(\.\d{1,3})?$/.test(totalCapacityValueText)) {
+            throw new Error(`${product.name} 총용량 형식이 올바르지 않습니다.`);
+          }
+
+          const totalCapacityValue = Number(totalCapacityValueText);
+          if (!Number.isFinite(totalCapacityValue) || totalCapacityValue < 0.001 || totalCapacityValue > 999999999) {
+            throw new Error(`${product.name} 총용량 범위가 올바르지 않습니다.`);
+          }
+
+          if (!/^\d+$/.test(unitCapacityText)) {
+            throw new Error(`${product.name} 표시용량은 1부터 999 사이의 정수여야 합니다.`);
+          }
+
+          const unitCapacity = Number(unitCapacityText);
+          if (!Number.isInteger(unitCapacity) || unitCapacity < 1 || unitCapacity > 999) {
+            throw new Error(`${product.name} 표시용량은 1부터 999 사이의 정수여야 합니다.`);
+          }
+
+          if (!UNIT_PRICE_INDICATION_UNITS.has(unitCapacityInfo.indicationUnit)) {
+            throw new Error(`${product.name} 표시단위가 올바르지 않습니다.`);
+          }
+
+          requestData.originProduct.detailAttribute.unitCapacity = {
+            unitPriceYn: true,
+            totalCapacityValue,
+            unitCapacity,
+            indicationUnit: unitCapacityInfo.indicationUnit,
+          };
+        }
       }
 
       // 속성 정보 설정 추가

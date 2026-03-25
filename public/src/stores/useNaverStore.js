@@ -18,6 +18,11 @@ export const useProductStore = create(
       selectedDetailCategory: null,
       selectedMicroCategory: null,
       selectedCategory: null,
+      isUnitPriceCategory: false,
+      unitPriceDefaults: {
+        unitCapacity: '',
+        indicationUnit: '',
+      },
       isCategoryLoading: false,
       categoryError: null,  
       productError: null,
@@ -62,6 +67,13 @@ export const useProductStore = create(
       setSelectCategory: (category) => {
         set({ selectedCategory: category });
       },
+      setUnitPriceCategory: (value) => set({ isUnitPriceCategory: value }),
+      setUnitPriceDefaults: (defaults) => set({
+        unitPriceDefaults: {
+          unitCapacity: defaults?.unitCapacity ?? '',
+          indicationUnit: defaults?.indicationUnit ?? '',
+        },
+      }),
       setCategoryLoading: (loading) => set({ isCategoryLoading: loading }),
       setTagSuggestionsLoading: (loading) => set({ isTagSuggestionsLoading: loading }),
       setProductProvidedNoticeLoading: (loading) => set({ isProductProvidedNoticeLoading: loading }),
@@ -79,6 +91,11 @@ export const useProductStore = create(
           selectedDetailCategory: null,
           selectedMicroCategory: null,
           selectedCategory: null,
+          isUnitPriceCategory: false,
+          unitPriceDefaults: {
+            unitCapacity: '',
+            indicationUnit: '',
+          },
           categoryError: null,
           productError: null,
           tags: [],
@@ -193,6 +210,11 @@ export const useProductStore = create(
           selectedDetailCategory: null,
           selectedMicroCategory: null,
           selectedCategory: null,
+          isUnitPriceCategory: false,
+          unitPriceDefaults: {
+            unitCapacity: '',
+            indicationUnit: '',
+          },
           isCategoryLoading: false,
           isTagSuggestionsLoading: false,
           isProductProvidedNoticeLoading: false,

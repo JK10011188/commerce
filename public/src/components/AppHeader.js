@@ -34,13 +34,15 @@ const AppHeader = () => {
 
   // 계정 변경 핸들러
   const handleAccountChange = (account) => {
-    console.log('헤더에서 계정을 변경합니다:', account.accName);
+    if (!account) {
+      return;
+    }
     setSelectedAccount(account);
   };
 
   // 스크롤 이벤트 리스너 등록
   useEffect(() => {
-    if(!selectedAccount) {
+    if(!selectedAccount && accounts.length > 0) {
       handleAccountChange(accounts[0]);
     }
 
@@ -51,7 +53,7 @@ const AppHeader = () => {
     };
     document.addEventListener('scroll', handleScroll);
     return () => document.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [selectedAccount, accounts]);
 
   return (
     <CHeader position="sticky" className="mb-4 p-0" ref={headerRef}>

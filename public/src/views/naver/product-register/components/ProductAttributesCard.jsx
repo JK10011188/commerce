@@ -27,6 +27,8 @@ const ProductAttributesCard = () => {
   const { fetchProductAttributes } = useNaverProductActions();
   const { selectedCategory, productAttributes, setProductAttributes, selectedProductAttributes, setSelectedProductAttributes } = useProductStore();
   const [showPreviewModal, setShowPreviewModal] = React.useState(false);
+  const safeProductAttributes = Array.isArray(productAttributes) ? productAttributes : [];
+  const safeSelectedProductAttributes = Array.isArray(selectedProductAttributes) ? selectedProductAttributes : [];
 
   useEffect(() => {
     if (selectedCategory?.id) {
@@ -35,7 +37,7 @@ const ProductAttributesCard = () => {
   }, [selectedCategory]);
 
   const handleAttributeChange = (attributeSeq, value) => {
-    const updatedAttributes = productAttributes.map(attr => {
+    const updatedAttributes = safeProductAttributes.map(attr => {
       if (attr.attributeSeq === attributeSeq) {
         if(value == '') {
           return { ...attr, selectedValue: null };
@@ -49,7 +51,7 @@ const ProductAttributesCard = () => {
     // 선택된 속성 업데이트
     const selectedAttr = updatedAttributes.find(attr => attr.attributeSeq === attributeSeq);
     if (selectedAttr) {
-      const updatedSelectedAttributes = selectedProductAttributes.filter(
+      const updatedSelectedAttributes = safeSelectedProductAttributes.filter(
         attr => attr.attributeSeq !== attributeSeq
       );
       if (value) {
@@ -60,7 +62,7 @@ const ProductAttributesCard = () => {
   };
 
   const handleMultiSelectChange = (attributeSeq, value, checked) => {
-    const attribute = productAttributes.find(attr => attr.attributeSeq === attributeSeq);
+    const attribute = safeProductAttributes.find(attr => attr.attributeSeq === attributeSeq);
     const currentValues = attribute?.selectedValues || [];
     
     let newValues;
@@ -77,7 +79,7 @@ const ProductAttributesCard = () => {
       return;
     }
 
-    const updatedAttributes = productAttributes.map(attr => {
+    const updatedAttributes = safeProductAttributes.map(attr => {
       if (attr.attributeSeq === attributeSeq) {
         return { ...attr, selectedValues: newValues };
       }
@@ -88,7 +90,7 @@ const ProductAttributesCard = () => {
     // 선택된 속성 업데이트
     const selectedAttr = updatedAttributes.find(attr => attr.attributeSeq === attributeSeq);
     if (selectedAttr) {
-      const updatedSelectedAttributes = selectedProductAttributes.filter(
+      const updatedSelectedAttributes = safeSelectedProductAttributes.filter(
         attr => attr.attributeSeq !== attributeSeq
       );
       if (newValues.length > 0) {
@@ -204,13 +206,13 @@ const ProductAttributesCard = () => {
                     attributeRealValue: newValue
                   }
                 };
-                const updatedAttributes = productAttributes.map(a => 
+                const updatedAttributes = safeProductAttributes.map(a => 
                   a.attributeSeq === attr.attributeSeq ? updatedAttr : a
                 );
                 setProductAttributes(updatedAttributes);
 
                 // 선택된 속성 업데이트
-                const updatedSelectedAttributes = selectedProductAttributes.filter(
+                const updatedSelectedAttributes = safeSelectedProductAttributes.filter(
                   a => a.attributeSeq !== attr.attributeSeq
                 );
                 if (newValue) {
@@ -300,11 +302,11 @@ const ProductAttributesCard = () => {
   };
 
   const renderSelectedAttributesPreview = () => {
-    if (!selectedProductAttributes.length) {
+    if (!safeSelectedProductAttributes.length) {
       return <CAlert color="info">선택된 상품 속성이 없습니다.</CAlert>;
     }
 
-    const groupedAttributes = selectedProductAttributes.reduce((acc, attr) => {
+    const groupedAttributes = safeSelectedProductAttributes.reduce((acc, attr) => {
       const typeCode = attr.attributeTypeCode;
       if (!acc[typeCode]) {
         acc[typeCode] = {
@@ -420,7 +422,7 @@ const ProductAttributesCard = () => {
               선택한 카테고리에 필요한 필수 속성을 입력해주세요.
             </div>
           </div>
-          {renderAttributeTable(productAttributes)}
+          {renderAttributeTable(safeProductAttributes)}
         </CCardBody>
       </CCard>
 

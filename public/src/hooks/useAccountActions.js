@@ -79,6 +79,8 @@ export function useAccountActions() {
           console.error('저장된 계정 정보 복원 중 오류:', error);
           setSelectedAccount(validatedRes.accounts[0]);
         }
+      } else if (validatedRes.accounts.length > 0) {
+        setSelectedAccount(validatedRes.accounts[0]);
       }
     } catch (err) {
       const errorMessage = createErrorMessage('조회', err);

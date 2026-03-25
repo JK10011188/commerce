@@ -207,7 +207,6 @@ const ProductRegisterForm = memo(() => {
               });
             },
             onGroupComplete: ({ label, success, error }) => {
-              console.log(`[옵션 상품 등록] 그룹 완료:`, { label, success, error });
               setProgressInfo(prev => {
                 const currentGroupResults = prev.groupResults || [];
                 const newGroupResults = currentGroupResults.map(r => 
@@ -259,12 +258,6 @@ const ProductRegisterForm = memo(() => {
                   message: `${result.product?.name || groupLabel} 등록 실패: ${errorMessage}`
                 });
               } else {
-                console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
-                  groupLabel,
-                  product: result.product?.name,
-                  result: result
-                });
-                
                 addNotification({
                   type: 'success',
                   message: `${result.product?.name || groupLabel} 등록 완료`

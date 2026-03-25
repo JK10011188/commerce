@@ -15,6 +15,12 @@ yarn.lock
 .eslintcache
 .DS_Store
 .idea
+.tmp-*.js
+edge-*.png
+screen-*.png
+playwright-*.png
+edge-profile*/
+build_output.txt
 .env.local
 .env.development.local
 .env.test.local

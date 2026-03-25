@@ -20,11 +20,35 @@ import ProductImageUploader from './ProductImageUploader'
 import ProductOptions from './ProductOptions'
 import { useProductStore } from '../../../../stores/useNaverStore'
 import { useNaverProductActions } from '../../../../hooks/useNaverProductActions'
+import {
+  UNIT_PRICE_INDICATION_UNITS,
+  createDefaultUnitCapacityInfo,
+  formatTotalCapacityValue,
+  normalizeUnitCapacityInfo,
+  sanitizeTotalCapacityValue,
+  sanitizeUnitCapacityValue,
+} from '../../../../utils/naverUnitPrice'
+
 const ProductList = () => {
-  const { products, setProduct, removeProduct, addProduct, setProducts, setCommonInfo, setMainProduct, mainProduct, isOptionProductMode, setOptionProductMode} = useProductStore();
+  const {
+    products,
+    setProduct,
+    removeProduct,
+    addProduct,
+    setProducts,
+    setCommonInfo,
+    setMainProduct,
+    mainProduct,
+    isOptionProductMode,
+    setOptionProductMode,
+    isUnitPriceCategory,
+    unitPriceDefaults,
+    selectedCategory,
+  } = useProductStore();
   const { makeNewProduct } = useNaverProductActions();
   const [closedProducts, setClosedProducts] = useState([]);
   const [closedGroups, setClosedGroups] = useState([]); // 옵션 그룹별 토글 상태
+  const [unitPriceBulkInfo, setUnitPriceBulkInfo] = useState(createDefaultUnitCapacityInfo());
   const [optionProductName, setOptionProductName] = useState('');
   const [optionName, setOptionName] = useState('');
   const [optionValuesInput, setOptionValuesInput] = useState('');
@@ -38,6 +62,9 @@ const ProductList = () => {
   };
   const [optionPrices, setOptionPrices] = useState(defaultOptionPrices);
   const countVariants = [1, 2, 3, 4, 5]; // 1개~5개 변형 공통 사용
+  const bulkUnitPriceInfo = normalizeUnitCapacityInfo(unitPriceBulkInfo);
+  const isUnitPriceInputEnabled = isUnitPriceCategory || bulkUnitPriceInfo.unitPriceYn;
+  const unitPriceApplyMode = 'count';
 
   useEffect(() => {
     if(isOptionProductMode) return;
@@ -73,6 +100,78 @@ const ProductList = () => {
       setOptionPrices(defaultOptionPrices);
     }
   }, [isOptionProductMode]);
+
+  useEffect(() => {
+    if (isUnitPriceCategory) {
+      setUnitPriceBulkInfo((prev) => ({
+        ...normalizeUnitCapacityInfo(prev),
+        unitPriceYn: true,
+      }));
+      return;
+    }
+
+    setUnitPriceBulkInfo((prev) => ({
+      ...normalizeUnitCapacityInfo(prev),
+      unitPriceYn: false,
+    }));
+  }, [isUnitPriceCategory]);
+
+  useEffect(() => {
+    const recommendedUnitCapacity = sanitizeUnitCapacityValue(unitPriceDefaults?.unitCapacity ?? '');
+    const recommendedIndicationUnit = UNIT_PRICE_INDICATION_UNITS.includes(unitPriceDefaults?.indicationUnit)
+      ? unitPriceDefaults.indicationUnit
+      : '';
+
+    setUnitPriceBulkInfo((prev) => ({
+      ...normalizeUnitCapacityInfo(prev),
+      totalCapacityValue: '',
+      unitCapacity: recommendedUnitCapacity,
+      indicationUnit: recommendedIndicationUnit,
+    }));
+  }, [
+    selectedCategory?.id,
+    unitPriceDefaults?.unitCapacity,
+    unitPriceDefaults?.indicationUnit,
+  ]);
+
+  useEffect(() => {
+    if (products.length === 0) {
+      return;
+    }
+
+    if (!isUnitPriceInputEnabled) {
+      setProducts(products.map((product) => ({
+        ...product,
+        unitCapacityInfo: createDefaultUnitCapacityInfo(),
+      })));
+      return;
+    }
+
+    const baseTotalCapacityValue = Number(bulkUnitPriceInfo.totalCapacityValue);
+
+    setProducts(products.map((product, index) => {
+      const targetCount = countVariants[index % countVariants.length] || 1;
+      const totalCapacityValue = bulkUnitPriceInfo.totalCapacityValue !== '' && Number.isFinite(baseTotalCapacityValue)
+        ? formatTotalCapacityValue(baseTotalCapacityValue * targetCount)
+        : '';
+
+      return {
+        ...product,
+        unitCapacityInfo: {
+          unitPriceYn: true,
+          totalCapacityValue,
+          unitCapacity: bulkUnitPriceInfo.unitCapacity,
+          indicationUnit: bulkUnitPriceInfo.indicationUnit,
+        },
+      };
+    }));
+  }, [
+    bulkUnitPriceInfo.totalCapacityValue,
+    bulkUnitPriceInfo.unitCapacity,
+    bulkUnitPriceInfo.indicationUnit,
+    isUnitPriceInputEnabled,
+    products.length,
+  ]);
 
   const handleToggleProduct = (productId) => {
     setClosedProducts(prev => 
@@ -141,6 +240,83 @@ const ProductList = () => {
 
     // 상품 상태 업데이트
     setProduct(updatedProduct);
+  };
+
+  const handleUnitCapacityInfoChange = (productId, field, value) => {
+    const product = products.find((item) => item.id === productId);
+    if (!product) {
+      return;
+    }
+
+    const currentInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+    let nextValue = value;
+
+    if (field === 'totalCapacityValue') {
+      nextValue = sanitizeTotalCapacityValue(value);
+    } else if (field === 'unitCapacity') {
+      nextValue = sanitizeUnitCapacityValue(value);
+    }
+
+    setProduct({
+      ...product,
+      unitCapacityInfo: {
+        ...currentInfo,
+        [field]: nextValue,
+      },
+    });
+  };
+
+  const handleBulkUnitCapacityChange = (field, value) => {
+    let nextValue = value;
+
+    if (field === 'totalCapacityValue') {
+      nextValue = sanitizeTotalCapacityValue(value);
+    } else if (field === 'unitCapacity') {
+      nextValue = sanitizeUnitCapacityValue(value);
+    }
+
+    setUnitPriceBulkInfo((prev) => ({
+      ...normalizeUnitCapacityInfo(prev),
+      [field]: nextValue,
+    }));
+  };
+
+  const applyUnitCapacityToProducts = () => {
+    const sourceInfo = normalizeUnitCapacityInfo(unitPriceBulkInfo);
+
+    if (products.length === 0) {
+      return;
+    }
+
+    if (unitPriceApplyMode === 'same') {
+      setProducts(products.map((product) => ({
+        ...product,
+        unitCapacityInfo: { ...sourceInfo },
+      })));
+      return;
+    }
+
+    const bulkTotalCapacityValue = Number(sourceInfo.totalCapacityValue);
+    if (!sourceInfo.unitPriceYn) {
+      alert('개수 기준 적용은 단위가격 표시를 켠 상태에서만 사용할 수 있습니다.');
+      return;
+    }
+
+    if (!Number.isFinite(bulkTotalCapacityValue) || bulkTotalCapacityValue <= 0) {
+      alert('개수 기준 적용 전에 총용량 기준값을 먼저 입력해주세요.');
+      return;
+    }
+
+    setProducts(products.map((product, index) => {
+      const targetCount = countVariants[index % countVariants.length] || 1;
+      return {
+        ...product,
+        unitCapacityInfo: {
+          ...sourceInfo,
+          totalCapacityValue: formatTotalCapacityValue(bulkTotalCapacityValue * targetCount),
+        },
+      };
+    }));
   };
 
   // 숫자 입력 필드에서 스크롤 이벤트 방지
@@ -263,6 +439,178 @@ const ProductList = () => {
     setMainProduct(generatedProducts[0]);
     // 그룹 토글 상태 초기화 (모든 그룹을 열린 상태로)
     setClosedGroups([]);
+  };
+
+  const renderUnitPriceBulkSection = () => {
+    if (products.length === 0) {
+      return null;
+    }
+
+    return (
+      <CCard className="mb-3">
+        <CCardHeader>
+          <strong>단위가격 공통 입력</strong>
+        </CCardHeader>
+        <CCardBody>
+          {!isUnitPriceCategory && (
+            <CRow className="g-3 mb-1">
+              <CCol xs={12}>
+                <CFormCheck
+                  id="unitPriceBulkYn"
+                  label="단위가격 입력"
+                  checked={bulkUnitPriceInfo.unitPriceYn}
+                  onChange={(e) => handleBulkUnitCapacityChange('unitPriceYn', e.target.checked)}
+                />
+              </CCol>
+            </CRow>
+          )}
+          {isUnitPriceInputEnabled && (
+            <>
+            <CRow className="g-3">
+            <CCol xs={12} className="d-none">
+              <CFormCheck
+                id="unitPriceBulkYn"
+                label="단위가격 표시"
+                checked={bulkUnitPriceInfo.unitPriceYn}
+                onChange={(e) => handleBulkUnitCapacityChange('unitPriceYn', e.target.checked)}
+              />
+            </CCol>
+            <CCol md={4}>
+              <CFormLabel htmlFor="unitPriceBulkTotalCapacity">총용량</CFormLabel>
+              <CFormInput
+                type="text"
+                id="unitPriceBulkTotalCapacity"
+                value={bulkUnitPriceInfo.totalCapacityValue}
+                onChange={(e) => handleBulkUnitCapacityChange('totalCapacityValue', e.target.value)}
+                placeholder="예: 400 또는 1.5"
+                disabled={!isUnitPriceInputEnabled}
+              />
+            </CCol>
+            <CCol md={4}>
+              <CFormLabel htmlFor="unitPriceBulkUnitCapacity">표시용량</CFormLabel>
+              <CFormInput
+                type="text"
+                id="unitPriceBulkUnitCapacity"
+                value={bulkUnitPriceInfo.unitCapacity}
+                onChange={(e) => handleBulkUnitCapacityChange('unitCapacity', e.target.value)}
+                placeholder="예: 100"
+                disabled={!isUnitPriceInputEnabled}
+              />
+            </CCol>
+            <CCol md={4}>
+              <CFormLabel htmlFor="unitPriceBulkIndicationUnit">표시단위</CFormLabel>
+              <CFormSelect
+                id="unitPriceBulkIndicationUnit"
+                value={bulkUnitPriceInfo.indicationUnit}
+                onChange={(e) => handleBulkUnitCapacityChange('indicationUnit', e.target.value)}
+                disabled={!isUnitPriceInputEnabled}
+              >
+                <option value="">선택해주세요</option>
+                {UNIT_PRICE_INDICATION_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </CFormSelect>
+            </CCol>
+          </CRow>
+          <CRow className="d-none">
+            <CCol md={4}>
+              <CFormLabel htmlFor="unitPriceApplyMode">적용 방식</CFormLabel>
+              <CFormSelect
+                id="unitPriceApplyMode"
+                value={unitPriceApplyMode}
+                onChange={() => {}}
+              >
+                <option value="same">동일값 적용</option>
+                <option value="count">개수 기준 적용</option>
+              </CFormSelect>
+            </CCol>
+            <CCol md={3}>
+              <CButton
+                color="secondary"
+                variant="outline"
+                className="w-100"
+                onClick={applyUnitCapacityToProducts}
+              >
+                전체 적용
+              </CButton>
+            </CCol>
+          </CRow>
+            </>
+          )}
+        </CCardBody>
+      </CCard>
+    );
+  };
+
+  const renderUnitPriceSection = (product) => {
+    if (!isUnitPriceInputEnabled) {
+      return null;
+    }
+
+    const unitCapacityInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+    return (
+      <CRow className="mb-3">
+        <CFormLabel className="col-sm-2 col-form-label">단위가격</CFormLabel>
+        <CCol sm={10}>
+          <div className="border rounded p-3">
+            <CRow className="g-3">
+              <CCol xs={12} className="d-none">
+                <CFormCheck
+                  id={`unitPriceYn-${product.id}`}
+                  label="단위가격 표시"
+                  checked={unitCapacityInfo.unitPriceYn}
+                  onChange={(e) => handleUnitCapacityInfoChange(product.id, 'unitPriceYn', e.target.checked)}
+                />
+              </CCol>
+              <CCol md={4}>
+                <CFormLabel htmlFor={`totalCapacityValue-${product.id}`}>총용량</CFormLabel>
+                <CInputGroup>
+                  <CFormInput
+                    type="text"
+                    id={`totalCapacityValue-${product.id}`}
+                    value={unitCapacityInfo.totalCapacityValue}
+                    onChange={(e) => handleUnitCapacityInfoChange(product.id, 'totalCapacityValue', e.target.value)}
+                    placeholder="예: 400 또는 1.5"
+                    disabled={!isUnitPriceInputEnabled}
+                  />
+                </CInputGroup>
+              </CCol>
+              <CCol md={4}>
+                <CFormLabel htmlFor={`unitCapacity-${product.id}`}>표시용량</CFormLabel>
+                <CInputGroup>
+                  <CFormInput
+                    type="text"
+                    id={`unitCapacity-${product.id}`}
+                    value={unitCapacityInfo.unitCapacity}
+                    onChange={(e) => handleUnitCapacityInfoChange(product.id, 'unitCapacity', e.target.value)}
+                    placeholder="예: 100"
+                    disabled={!isUnitPriceInputEnabled}
+                  />
+                </CInputGroup>
+              </CCol>
+              <CCol md={4}>
+                <CFormLabel htmlFor={`indicationUnit-${product.id}`}>표시단위</CFormLabel>
+                <CFormSelect
+                  id={`indicationUnit-${product.id}`}
+                  value={unitCapacityInfo.indicationUnit}
+                  onChange={(e) => handleUnitCapacityInfoChange(product.id, 'indicationUnit', e.target.value)}
+                  disabled={!isUnitPriceInputEnabled}
+                >
+                  <option value="">선택해주세요</option>
+                  {UNIT_PRICE_INDICATION_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </CFormSelect>
+              </CCol>
+            </CRow>
+          </div>
+        </CCol>
+      </CRow>
+    );
   };
 
   return (
@@ -398,6 +746,7 @@ const ProductList = () => {
             </CRow>
           </div>
         )}
+        {renderUnitPriceBulkSection()}
         {isOptionProductMode ? (
           // 옵션 모드: 그룹별 토글로 표시
           getGroupedProducts().map((group, groupIndex) => {
@@ -538,6 +887,7 @@ const ProductList = () => {
                     </CRow>
                   </CCol>
                 </CRow>
+                {renderUnitPriceSection(product)}
                 {/* 상품 이미지 업로드 영역 */}
                 <ProductImageUploader productId={product.id} />
                 {/* 상품 옵션 영역: 옵션 모드에서도 기존 UI를 그대로 표시 (읽기전용) */}
@@ -681,6 +1031,7 @@ const ProductList = () => {
                       </CRow>
                     </CCol>
                   </CRow>
+                  {renderUnitPriceSection(product)}
                   {/* 상품 이미지 업로드 영역 */}
                   <ProductImageUploader productId={product.id} />
                   {/* 상품 옵션 영역 */}

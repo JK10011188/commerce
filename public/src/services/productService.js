@@ -45,6 +45,10 @@ export const productService = {
     return apiService.post(API_ENDPOINTS.NAVER.SEARCH_SUB_CATEGORIES, data);
   },
 
+  getCategoryDetail: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.SEARCH_CATEGORY_DETAIL, data);
+  },
+
   /**
    * 카테고리 태그 가져오기
    * @returns {Promise} 카테고리 태그 목록

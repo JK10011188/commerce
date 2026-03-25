@@ -8,6 +8,7 @@ export default defineConfig(() => {
     base: './',
     build: {
       outDir: 'build',
+      reportCompressedSize: false,
     },
     css: {
       // Sass 1.95에서 if() 구문 deprecated 경고를 조용히 처리

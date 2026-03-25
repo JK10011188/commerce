@@ -2,6 +2,7 @@ import { useProductStore } from '../stores/useNaverStore';
 import { useAccountStore } from '../stores/useAccountStore';
 import productService from '../services/productService';
 import debounce from 'lodash.debounce';
+import { UNIT_PRICE_INDICATION_UNITS, createDefaultUnitCapacityInfo, normalizeUnitCapacityInfo } from '../utils/naverUnitPrice';
 
 const createErrorMessage = (operation, error, isCategory = false) => {
   const target = isCategory ? '카테고리' : '상품'
@@ -92,6 +93,24 @@ export const useNaverProductActions = () => {
     }
   };
 
+  const fetchCategoryDetail = async (categoryId) => {
+    if (!categoryId) {
+      store.setUnitPriceCategory(false);
+      return;
+    }
+
+    try {
+      const res = await productService.getCategoryDetail({ categoryCode: categoryId, accName: selectedAccount.accName });
+      const validatedRes = validateResponse(res, '카테고리 상세 조회');
+      const isUnitPriceCategory = Array.isArray(validatedRes.exceptionalCategories) &&
+        validatedRes.exceptionalCategories.includes('UNIT_PRICE');
+      store.setUnitPriceCategory(isUnitPriceCategory);
+    } catch (err) {
+      store.setUnitPriceCategory(false);
+      handleCategoryError(err, '카테고리 상세 조회');
+    }
+  };
+
   const fetchTagRestrictions = async (tags) => {
     try {
       const res = await productService.getTagRestrictions({accName: selectedAccount.accName, tags: tags});
@@ -130,9 +149,35 @@ export const useNaverProductActions = () => {
     try {
       store.setProductAttributes([]);
       store.setSelectedProductAttributes([]);
+      store.setUnitPriceDefaults({
+        unitCapacity: '',
+        indicationUnit: '',
+      });
       const res = await productService.getProductAttributes({accName: selectedAccount.accName, categoryCode : categoryId});
       const validatedRes = validateResponse(res, '상품 속성 조회');
-      store.setProductAttributes(validatedRes);
+      const productAttributes = Array.isArray(validatedRes)
+        ? validatedRes
+        : Array.isArray(validatedRes.attributes)
+          ? validatedRes.attributes
+          : [];
+      const isUnitPriceCategory = Array.isArray(validatedRes)
+        ? false
+        : typeof validatedRes.isUnitPriceCategory === 'boolean'
+          ? validatedRes.isUnitPriceCategory
+          : Array.isArray(validatedRes.exceptionalCategories) &&
+            validatedRes.exceptionalCategories.includes('UNIT_PRICE');
+      const recommendedUnitCapacity = Array.isArray(validatedRes)
+        ? ''
+        : validatedRes.unitPriceValue ?? '';
+      const recommendedIndicationUnit = Array.isArray(validatedRes)
+        ? ''
+        : validatedRes.unitPriceText ?? '';
+      store.setProductAttributes(productAttributes);
+      store.setUnitPriceCategory(isUnitPriceCategory);
+      store.setUnitPriceDefaults({
+        unitCapacity: recommendedUnitCapacity,
+        indicationUnit: recommendedIndicationUnit,
+      });
     } catch (err) {
       handleError(err, '상품 속성 조회');
     }
@@ -188,6 +233,47 @@ export const useNaverProductActions = () => {
       const validProducts = store.products.filter(product => product.name && product.price > 0);
       if (validProducts.length === 0) {
         throw new Error('등록할 상품이 없습니다.');
+      }
+
+      const shouldValidateUnitPrice = store.isUnitPriceCategory || validProducts.some((product) => {
+        const unitCapacityInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+        return unitCapacityInfo.unitPriceYn;
+      });
+
+      if (shouldValidateUnitPrice) {
+        validProducts.forEach((product) => {
+          const unitCapacityInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+          if (!unitCapacityInfo.unitPriceYn) {
+            if (store.isUnitPriceCategory) {
+              throw new Error(`${product.name} 상품은 단위가격 입력이 필수입니다.`);
+            }
+            return;
+          }
+
+          const totalCapacityValue = String(unitCapacityInfo.totalCapacityValue ?? '').trim();
+          if (!/^\d+(\.\d{1,3})?$/.test(totalCapacityValue)) {
+            throw new Error(`${product.name}의 총용량은 소수 셋째 자리까지 입력해주세요.`);
+          }
+
+          const parsedTotalCapacityValue = Number(totalCapacityValue);
+          if (!Number.isFinite(parsedTotalCapacityValue) || parsedTotalCapacityValue < 0.001 || parsedTotalCapacityValue > 999999999) {
+            throw new Error(`${product.name}의 총용량은 0.001 이상 999999999 이하로 입력해주세요.`);
+          }
+
+          const unitCapacity = String(unitCapacityInfo.unitCapacity ?? '').trim();
+          if (!/^\d+$/.test(unitCapacity)) {
+            throw new Error(`${product.name}의 표시용량은 1부터 999 사이의 정수만 입력할 수 있습니다.`);
+          }
+
+          const parsedUnitCapacity = Number(unitCapacity);
+          if (!Number.isInteger(parsedUnitCapacity) || parsedUnitCapacity < 1 || parsedUnitCapacity > 999) {
+            throw new Error(`${product.name}의 표시용량은 1부터 999 사이의 정수만 입력할 수 있습니다.`);
+          }
+
+          if (!UNIT_PRICE_INDICATION_UNITS.includes(unitCapacityInfo.indicationUnit)) {
+            throw new Error(`${product.name}의 표시단위를 선택해주세요.`);
+          }
+        });
       }
 
       // 이미지 변환 함수
@@ -338,11 +424,6 @@ export const useNaverProductActions = () => {
                   error: errorMessages
                 });
               } else {
-                console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
-                  groupLabel,
-                  productCount: validatedRes.length
-                });
-                
                 progressHandler?.onGroupComplete?.({
                   label: groupLabel,
                   success: true,
@@ -360,10 +441,6 @@ export const useNaverProductActions = () => {
                   groupLabel,
                   error: errMsg,
                   result: validatedRes
-                });
-              } else {
-                console.log(`[옵션 상품 등록 성공] 그룹: ${groupLabel}`, {
-                  groupLabel
                 });
               }
               
@@ -441,13 +518,15 @@ export const useNaverProductActions = () => {
       price: 0,
       mainImage: null,
       additionalImages: [],
-      options: [] 
+      options: [],
+      unitCapacityInfo: createDefaultUnitCapacityInfo(),
     }
   }
 
   return {
     fetchMainCategories,
     fetchSubCategories,
+    fetchCategoryDetail,
     fetchTagSuggestions,
     fetchCategoryTags,
     fetchTagRestrictions,

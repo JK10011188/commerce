@@ -25,6 +25,7 @@ import CIcon from '@coreui/icons-react'
 import { cilXCircle } from '@coreui/icons'
 import { useProductStore } from '../../../../stores/useNaverStore'
 import { useNaverProductActions } from '../../../../hooks/useNaverProductActions'
+import { normalizeUnitCapacityInfo } from '../../../../utils/naverUnitPrice'
 
 const PreviewModal = () => {
   const { 
@@ -42,7 +43,9 @@ const PreviewModal = () => {
     selectedSubCategory,
     selectedDetailCategory,
     selectedMicroCategory,
+    isUnitPriceCategory,
   } = useProductStore();
+  const safeSelectedProductAttributes = Array.isArray(selectedProductAttributes) ? selectedProductAttributes : [];
 
   const { registerProduct } = useNaverProductActions();
 
@@ -68,7 +71,7 @@ const PreviewModal = () => {
   };
 
   const renderSelectedAttributes = () => {
-    if (!selectedProductAttributes.length) {
+    if (!safeSelectedProductAttributes.length) {
       return (
         <div className="text-muted">
           <CIcon icon={cilXCircle} className="me-1" />
@@ -76,7 +79,7 @@ const PreviewModal = () => {
         </div>
       );
     }
-    const groupedAttributes = selectedProductAttributes.reduce((acc, attr) => {
+    const groupedAttributes = safeSelectedProductAttributes.reduce((acc, attr) => {
       const typeCode = attr.attributeTypeCode;
       if (!acc[typeCode]) {
         acc[typeCode] = {
@@ -390,6 +393,21 @@ const PreviewModal = () => {
                   </div>
                 </CCol>
               </CRow>
+              {isUnitPriceCategory && (
+                <CRow className="mb-4">
+                  <CCol sm={3}><strong>단위가격</strong></CCol>
+                  <CCol>
+                    {(() => {
+                      const unitCapacityInfo = normalizeUnitCapacityInfo(product.unitCapacityInfo);
+                      if (!unitCapacityInfo.unitPriceYn) {
+                        return '표시 안 함';
+                      }
+
+                      return `총용량 ${unitCapacityInfo.totalCapacityValue}, 표시용량 ${unitCapacityInfo.unitCapacity}, 표시단위 ${unitCapacityInfo.indicationUnit}`;
+                    })()}
+                  </CCol>
+                </CRow>
+              )}
 
               {/* 상품 이미지 */}
               <CRow className="mb-4">

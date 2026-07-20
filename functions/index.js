@@ -3177,7 +3177,6 @@ function buildStandardColorSizeOptionInfo(
       },
     ],
     optionStandards: selectedCombinations.map((combination) => ({
-      id: 0,
       optionName1: colorNameMap.get(normalizeOptionText(combination.color)),
       optionName2: sizeNameMap.get(normalizeOptionText(combination.size)),
       stockQuantity,
@@ -3199,7 +3198,6 @@ function buildCombinationColorSizeOptionInfo(selectedCombinations, stockQuantity
       optionGroupName2: "사이즈",
     },
     optionCombinations: selectedCombinations.map((combination) => ({
-      id: 0,
       optionName1: String(combination.color),
       optionName2: String(combination.size),
       stockQuantity,
@@ -3223,7 +3221,6 @@ function buildCombinationSizeOptionInfo(selectedCombinations, stockQuantity) {
       optionGroupName1: "사이즈",
     },
     optionCombinations: selectedCombinations.map((combination) => ({
-      id: 0,
       optionName1: String(combination.size),
       stockQuantity,
       price: 0,
@@ -3254,6 +3251,21 @@ function getSizeRegistrationCombinationKey(combination, withoutColor) {
   const size = normalizeOptionText(combination?.size);
   if (withoutColor) return size;
   return `${normalizeOptionText(combination?.color)}:${size}`;
+}
+
+function formatNaverInvalidInputs(responseData) {
+  if (!Array.isArray(responseData?.invalidInputs)) return "";
+
+  return responseData.invalidInputs
+    .map((input) => {
+      if (!input || typeof input !== "object") return String(input || "");
+      const field = input.name || input.field || input.path || input.fieldName || input.code || "";
+      const message = input.message || input.reason || input.errorMessage || "";
+      const value = input.value !== undefined ? ` value=${JSON.stringify(input.value)}` : "";
+      return [field, message].filter(Boolean).join(": ") + value;
+    })
+    .filter(Boolean)
+    .join(", ");
 }
 
 async function registerNaverProductWithRetry(
@@ -3294,14 +3306,16 @@ async function registerNaverProductWithRetry(
 
       if (response.ok) return responseData;
 
+      const invalidInputMessage = formatNaverInvalidInputs(responseData);
       const responseError = new Error(
-        responseData?.message ||
-          responseData?.invalidInputs?.map((input) => input.message || input.name).filter(Boolean).join(", ") ||
+        invalidInputMessage ||
+          responseData?.message ||
           responseText ||
           "네이버 상품 등록 실패"
       );
       responseError.status = response.status;
       responseError.responseData = responseData;
+      responseError.invalidInputMessage = invalidInputMessage;
       lastError = responseError;
 
       const retryable = response.status === 429 || response.status >= 500;
@@ -4210,7 +4224,8 @@ app.post("/NaddSizeIndividualProducts", async (req, res) => {
           console.error(
             "네이버 표준옵션 상품등록 실패, 조합형 옵션으로 재시도:",
             optionLabel,
-            registrationError
+            registrationError?.message,
+            JSON.stringify(registrationError?.responseData || {}, null, 2)
           );
           requestData.originProduct.detailAttribute.optionInfo = fallbackOptionInfo;
           responseData = await registerNaverProductWithRetry(
@@ -4231,13 +4246,19 @@ app.post("/NaddSizeIndividualProducts", async (req, res) => {
           response: responseData,
         });
       } catch (registrationError) {
-        console.error("네이버 옵션별 상품등록 실패:", optionLabel, registrationError);
+        console.error(
+          "네이버 옵션별 상품등록 실패:",
+          optionLabel,
+          registrationError?.message,
+          JSON.stringify(registrationError?.responseData || {}, null, 2)
+        );
         failedProducts.push({
           productName: registeredProductName,
           baseProductName: productName,
           option: combination,
           optionLabel,
           message: registrationError.message || "네이버 상품 등록 실패",
+          naverError: registrationError.responseData || null,
         });
       }
 

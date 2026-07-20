@@ -1871,6 +1871,120 @@ async function getAccessToken(clientId, clientSecret, type, accountId) {
   }
 }
 
+async function getNaverAccount(accName) {
+  if (!accName) {
+    throw new Error("선택된계정 정보가 없습니다.");
+  }
+
+  const doc = await db.collection("Accounts").doc(accName).get();
+  if (!doc.exists) {
+    throw new Error("ACC 데이터 조회 실패");
+  }
+
+  console.log("계정명:", doc.id);
+  return doc.data();
+}
+
+const NAVER_SIZE_REGISTRATION_LOCK_MS = 10 * 60 * 1000;
+const NAVER_SIZE_REGISTRATION_BUDGET_MS = 500 * 1000;
+
+function getNaverSizeRegistrationLockRef(accName) {
+  const accountKey = crypto
+    .createHash("sha256")
+    .update(String(accName || ""))
+    .digest("hex");
+  return db.collection("NaverSizeRegistrationLocks").doc(accountKey);
+}
+
+async function claimNaverSizeRegistration(accName, requestId) {
+  const lockRef = getNaverSizeRegistrationLockRef(accName);
+  const now = Date.now();
+
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(lockRef);
+    const lock = snapshot.exists ? snapshot.data() : {};
+
+    if (lock.lastCompletedRequestId === requestId && lock.lastResponse) {
+      return { status: "completed", response: lock.lastResponse, lockRef };
+    }
+
+    if (Number(lock.lockedUntil || 0) > now) {
+      return { status: "busy", lockRef };
+    }
+
+    transaction.set(
+      lockRef,
+      {
+        accountName: String(accName),
+        currentRequestId: requestId,
+        lockedUntil: now + NAVER_SIZE_REGISTRATION_LOCK_MS,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return { status: "claimed", lockRef };
+  });
+}
+
+async function completeNaverSizeRegistration(lockRef, requestId, responsePayload) {
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(lockRef);
+    const lock = snapshot.exists ? snapshot.data() : {};
+    if (lock.currentRequestId !== requestId) return;
+
+    transaction.set(
+      lockRef,
+      {
+        currentRequestId: admin.firestore.FieldValue.delete(),
+        lockedUntil: 0,
+        lastCompletedRequestId: requestId,
+        lastResponse: responsePayload,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+async function updateNaverSizeRegistrationProgress(lockRef, requestId, progress) {
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(lockRef);
+    if (!snapshot.exists || snapshot.data()?.currentRequestId !== requestId) return;
+
+    transaction.set(
+      lockRef,
+      {
+        progress: {
+          ...progress,
+          requestId,
+        },
+        progressUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+async function releaseNaverSizeRegistration(lockRef, requestId) {
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(lockRef);
+    if (!snapshot.exists || snapshot.data()?.currentRequestId !== requestId) return;
+
+    transaction.set(
+      lockRef,
+      {
+        currentRequestId: admin.firestore.FieldValue.delete(),
+        lockedUntil: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
 // 네이버 태그 조회 API
 app.post("/getRecommendTags", async (req, res) => {
   console.log("네이버 태그 추천 조회");
@@ -2811,6 +2925,433 @@ async function getRecommendedUnitPriceGuide(categoryCode, accessToken) {
   }
 }
 
+async function getStandardOptionGroups(categoryCode, accessToken) {
+  try {
+    const response = await fetch(
+      `https://api.commerce.naver.com/external/v1/options/standard-options?categoryId=${encodeURIComponent(categoryCode)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.log("[Naver][StandardOptions] response error", {
+        categoryCode,
+        status: response.status,
+        body: errorBody,
+      });
+      return [];
+    }
+
+    const data = await response.json();
+    const source = data?.data ?? data;
+    const candidates = [
+      source?.standardOptionGroups,
+      source?.standardOptionCategoryGroups,
+      source?.standardOptions,
+      source?.optionGroups,
+      source?.options,
+      source?.contents,
+      source?.content,
+      source?.list,
+      Array.isArray(source) ? source : null,
+    ];
+
+    const entries = [];
+    candidates.forEach((candidate) => {
+      if (Array.isArray(candidate)) entries.push(...candidate);
+    });
+
+    const groups = [];
+    entries.forEach((entry) => {
+      if (entry?.useStandardOption === false) return;
+      if (Array.isArray(entry?.standardOptionCategoryGroups)) {
+        groups.push(...entry.standardOptionCategoryGroups);
+        return;
+      }
+      if (getStandardOptionGroupName(entry)) groups.push(entry);
+    });
+
+    return groups;
+  } catch (error) {
+    console.log("[Naver][StandardOptions] request failed", {
+      categoryCode,
+      message: error?.message,
+    });
+    return [];
+  }
+}
+
+function getStandardOptionGroupName(group) {
+  return String(
+    group?.groupName ??
+    group?.optionName ??
+    group?.name ??
+    group?.attributeName ??
+    ""
+  ).trim();
+}
+
+function getStandardOptionAttributes(group) {
+  const candidates = [
+    group?.standardOptionAttributes,
+    group?.attributes,
+    group?.optionValues,
+    group?.values,
+    group?.children,
+  ];
+
+  const attributes = [];
+  candidates.forEach((candidate) => {
+    if (Array.isArray(candidate)) attributes.push(...candidate);
+  });
+
+  return attributes;
+}
+
+function getStandardOptionAttributeName(attribute) {
+  return String(
+    attribute?.attributeValueName ??
+    attribute?.valueName ??
+    attribute?.name ??
+    attribute?.label ??
+    ""
+  ).trim();
+}
+
+function normalizeOptionText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/(?:mm|cm)$/g, "");
+}
+
+function getSizeOptionAliases(value) {
+  const normalized = normalizeOptionText(value);
+  const aliases = new Set([normalized]);
+
+  if (
+    ["free", "f", "프리", "프리사이즈", "onesize", "one-size", "one"].includes(normalized)
+  ) {
+    ["free", "f", "프리", "프리사이즈", "onesize", "one"].forEach((alias) => {
+      aliases.add(alias);
+    });
+  }
+
+  return aliases;
+}
+
+function isSameSizeOptionName(sizeLabel, optionLabel) {
+  const sizeAliases = getSizeOptionAliases(sizeLabel);
+  const optionAliases = getSizeOptionAliases(optionLabel);
+
+  for (const alias of sizeAliases) {
+    if (optionAliases.has(alias)) return true;
+  }
+
+  return false;
+}
+
+function buildStandardColorSizeOptionInfo(
+  colorRows,
+  sizeRows,
+  selectedCombinations,
+  standardOptionGroups,
+  stockQuantity
+) {
+  const colorGroups = standardOptionGroups.filter((group) => {
+    const groupName = normalizeOptionText(getStandardOptionGroupName(group));
+    return groupName.includes("색상") || groupName.includes("컬러") || groupName.includes("color");
+  });
+  const sizeGroups = standardOptionGroups.filter((group) => {
+    const groupName = normalizeOptionText(getStandardOptionGroupName(group));
+    return groupName.includes("사이즈") || groupName.includes("크기") || groupName.includes("size");
+  });
+
+  const colorGroup = colorGroups.find((group) => {
+    const attributes = getStandardOptionAttributes(group);
+    return colorRows.every((color) =>
+      attributes.some(
+        (attribute) =>
+          normalizeOptionText(color.label) ===
+          normalizeOptionText(getStandardOptionAttributeName(attribute))
+      )
+    );
+  });
+  const sizeGroup = sizeGroups.find((group) => {
+    const attributes = getStandardOptionAttributes(group);
+    return sizeRows.every((size) =>
+      attributes.some((attribute) =>
+        isSameSizeOptionName(size.label, getStandardOptionAttributeName(attribute))
+      )
+    );
+  });
+
+  if (!colorGroup || !sizeGroup) return null;
+
+  const colorAttributes = getStandardOptionAttributes(colorGroup);
+  const sizeAttributes = getStandardOptionAttributes(sizeGroup);
+  const matchedColorAttributes = colorRows.map((color) =>
+    colorAttributes.find(
+      (attribute) =>
+        normalizeOptionText(color.label) ===
+        normalizeOptionText(getStandardOptionAttributeName(attribute))
+    )
+  );
+  const matchedAttributes = sizeRows.map((size) => {
+    return sizeAttributes.find((attribute) =>
+      isSameSizeOptionName(size.label, getStandardOptionAttributeName(attribute))
+    );
+  });
+
+  if (
+    matchedColorAttributes.some((attribute) => !attribute) ||
+    matchedAttributes.some((attribute) => !attribute)
+  ) {
+    return null;
+  }
+
+  const mapStandardAttribute = (attribute, fallbackName) => {
+    const attributeId = Number(attribute?.attributeId ?? attribute?.id ?? attribute?.attributeSeq);
+    const attributeValueId = Number(
+      attribute?.attributeValueId ?? attribute?.valueId ?? attribute?.attributeValueSeq
+    );
+
+    return {
+      attributeId,
+      attributeValueId,
+      attributeValueName: getStandardOptionAttributeName(attribute) || fallbackName,
+      imageUrls: Array.isArray(attribute?.imageUrls) ? attribute.imageUrls : [],
+    };
+  };
+
+  const standardColorAttributes = matchedColorAttributes.map((attribute, index) =>
+    mapStandardAttribute(attribute, colorRows[index].label)
+  );
+  const standardSizeAttributes = matchedAttributes.map((attribute, index) =>
+    mapStandardAttribute(attribute, sizeRows[index].label)
+  );
+
+  if (
+    [...standardColorAttributes, ...standardSizeAttributes].some(
+      (attribute) =>
+        !Number.isFinite(attribute.attributeId) ||
+        !Number.isFinite(attribute.attributeValueId)
+    )
+  ) {
+    return null;
+  }
+
+  const colorNameMap = new Map(
+    colorRows.map((color, index) => [
+      normalizeOptionText(color.label),
+      standardColorAttributes[index].attributeValueName,
+    ])
+  );
+  const sizeNameMap = new Map(
+    sizeRows.map((size, index) => [
+      normalizeOptionText(size.label),
+      standardSizeAttributes[index].attributeValueName,
+    ])
+  );
+
+  return {
+    simpleOptionSortType: "CREATE",
+    optionSimple: [],
+    optionCustom: [],
+    optionCombinationSortType: "CREATE",
+    standardOptionGroups: [
+      {
+        groupName: getStandardOptionGroupName(colorGroup) || "색상",
+        standardOptionAttributes: standardColorAttributes,
+      },
+      {
+        groupName: getStandardOptionGroupName(sizeGroup) || "사이즈",
+        standardOptionAttributes: standardSizeAttributes,
+      },
+    ],
+    optionStandards: selectedCombinations.map((combination) => ({
+      id: 0,
+      optionName1: colorNameMap.get(normalizeOptionText(combination.color)),
+      optionName2: sizeNameMap.get(normalizeOptionText(combination.size)),
+      stockQuantity,
+      usable: true,
+    })),
+    useStockManagement: true,
+    optionDeliveryAttributes: [],
+  };
+}
+
+function buildCombinationColorSizeOptionInfo(selectedCombinations, stockQuantity) {
+  return {
+    simpleOptionSortType: "CREATE",
+    optionSimple: [],
+    optionCustom: [],
+    optionCombinationSortType: "CREATE",
+    optionCombinationGroupNames: {
+      optionGroupName1: "색상",
+      optionGroupName2: "사이즈",
+    },
+    optionCombinations: selectedCombinations.map((combination) => ({
+      id: 0,
+      optionName1: String(combination.color),
+      optionName2: String(combination.size),
+      stockQuantity,
+      price: 0,
+      usable: true,
+    })),
+    standardOptionGroups: [],
+    optionStandards: [],
+    useStockManagement: true,
+    optionDeliveryAttributes: [],
+  };
+}
+
+function buildCombinationSizeOptionInfo(selectedCombinations, stockQuantity) {
+  return {
+    simpleOptionSortType: "CREATE",
+    optionSimple: [],
+    optionCustom: [],
+    optionCombinationSortType: "CREATE",
+    optionCombinationGroupNames: {
+      optionGroupName1: "사이즈",
+    },
+    optionCombinations: selectedCombinations.map((combination) => ({
+      id: 0,
+      optionName1: String(combination.size),
+      stockQuantity,
+      price: 0,
+      usable: true,
+    })),
+    standardOptionGroups: [],
+    optionStandards: [],
+    useStockManagement: true,
+    optionDeliveryAttributes: [],
+  };
+}
+
+function buildSizeRegistrationOptionLabel(combination, withoutColor) {
+  return withoutColor
+    ? String(combination.size || "").trim()
+    : [combination.color, combination.size]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" ");
+}
+
+function buildSizeRegistrationProductName(baseProductName, combination, withoutColor) {
+  const optionLabel = buildSizeRegistrationOptionLabel(combination, withoutColor);
+  return [baseProductName, optionLabel].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function getSizeRegistrationCombinationKey(combination, withoutColor) {
+  const size = normalizeOptionText(combination?.size);
+  if (withoutColor) return size;
+  return `${normalizeOptionText(combination?.color)}:${size}`;
+}
+
+async function registerNaverProductWithRetry(
+  requestData,
+  accessToken,
+  maxAttempts = 3,
+  deadlineAt = Number.POSITIVE_INFINITY
+) {
+  let lastError;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (Date.now() >= deadlineAt) {
+      throw new Error("서버 제한 시간에 도달해 상품 등록을 중단했습니다.");
+    }
+
+    try {
+      const response = await fetch(
+        "https://api.commerce.naver.com/external/v2/products",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestData),
+        }
+      );
+      const responseText = await response.text();
+      let responseData = {};
+
+      if (responseText) {
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          responseData = { raw: responseText };
+        }
+      }
+
+      if (response.ok) return responseData;
+
+      const responseError = new Error(
+        responseData?.message ||
+          responseData?.invalidInputs?.map((input) => input.message || input.name).filter(Boolean).join(", ") ||
+          responseText ||
+          "네이버 상품 등록 실패"
+      );
+      responseError.status = response.status;
+      responseError.responseData = responseData;
+      lastError = responseError;
+
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === maxAttempts - 1) throw responseError;
+    } catch (error) {
+      lastError = error;
+      const retryable = !error.status || error.status === 429 || error.status >= 500;
+      if (!retryable || attempt === maxAttempts - 1) throw error;
+    }
+
+    const retryDelay = 1000 * 2 ** attempt;
+    if (Date.now() + retryDelay >= deadlineAt) {
+      throw lastError || new Error("서버 제한 시간에 도달해 상품 등록을 중단했습니다.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+  }
+
+  throw lastError || new Error("네이버 상품 등록 실패");
+}
+
+app.post("/NsearchStandardOptions", async (req, res) => {
+  try {
+    const categoryId = req.body.categoryId;
+    if (!categoryId) {
+      return res.status(400).json({
+        result: "error",
+        message: "카테고리 번호가 필요합니다.",
+      });
+    }
+
+    const accData = await getNaverAccount(req.body.accName);
+    const accessToken = await getAccessToken(accData.n_id, accData.n_sk, "SELF");
+    const standardOptionGroups = await getStandardOptionGroups(
+      categoryId,
+      accessToken.access_token
+    );
+
+    return res.json({
+      result: "success",
+      standardOptionGroups,
+    });
+  } catch (error) {
+    console.error("네이버 카테고리 간편옵션 조회 실패:", error);
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "카테고리 간편옵션 조회에 실패했습니다.",
+    });
+  }
+});
+
 // 네이버 카테고리별 속성 조회
 app.post("/NsearchAttribute", async (req, res) => {
 
@@ -2946,6 +3487,848 @@ app.post("/NsearchAttribute", async (req, res) => {
     } catch (error) {
       console.error("API 요청 에러:", error);
       return [];
+    }
+  }
+});
+
+function normalizeNaverSizeTypeList(payload) {
+  const source = payload?.data ?? payload;
+  const candidates = [
+    source?.contents,
+    source?.content,
+    source?.sizeTypes,
+    source?.list,
+    Array.isArray(source) ? source : null,
+  ];
+
+  const sizeTypes = [];
+  candidates.forEach((candidate) => {
+    if (Array.isArray(candidate)) sizeTypes.push(...candidate);
+  });
+
+  return sizeTypes;
+}
+
+async function fetchNaverJson(url, accessToken) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const text = await response.text();
+  let body = {};
+
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch (error) {
+    body = { message: text };
+  }
+
+  if (!response.ok) {
+    const message =
+      body?.message || body?.error?.message || text || `네이버 API 요청 실패(${response.status})`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+
+  return body;
+}
+
+app.post("/NsearchSizeTypes", async (req, res) => {
+  console.log("네이버 사이즈 타입 전체 조회");
+
+  try {
+    const accData = await getNaverAccount(req.body.accName);
+    const accessToken = await getAccessToken(accData.n_id, accData.n_sk, "SELF");
+
+    const response = await fetch(
+      "https://api.commerce.naver.com/external/v1/product-sizes",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken.access_token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const responseBody = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json(responseBody);
+    }
+
+    return res.json(responseBody);
+  } catch (error) {
+    console.error("네이버 사이즈 타입 조회 실패:", error);
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "사이즈 타입 조회 실패",
+    });
+  }
+});
+
+app.post("/NsearchSizeTypeDetail", async (req, res) => {
+  console.log("네이버 사이즈 타입 상세 조회");
+
+  try {
+    const sizeTypeId = req.body.sizeTypeId;
+    if (!sizeTypeId) {
+      return res.status(400).json({
+        result: "error",
+        message: "사이즈 타입 번호가 필요합니다.",
+      });
+    }
+
+    const accData = await getNaverAccount(req.body.accName);
+    const accessToken = await getAccessToken(accData.n_id, accData.n_sk, "SELF");
+
+    const response = await fetch(
+      `https://api.commerce.naver.com/external/v1/product-sizes/${sizeTypeId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken.access_token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const responseBody = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json(responseBody);
+    }
+
+    return res.json(responseBody);
+  } catch (error) {
+    console.error("네이버 사이즈 타입 상세 조회 실패:", error);
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "사이즈 타입 상세 조회 실패",
+    });
+  }
+});
+
+app.post("/NsearchAllSizeValues", async (req, res) => {
+  console.log("네이버 전체 사이즈 참고값 조회");
+
+  try {
+    const accData = await getNaverAccount(req.body.accName);
+    const accessToken = await getAccessToken(accData.n_id, accData.n_sk, "SELF");
+
+    const sizeTypesResponse = await fetchNaverJson(
+      "https://api.commerce.naver.com/external/v1/product-sizes",
+      accessToken.access_token
+    );
+    const sizeTypes = normalizeNaverSizeTypeList(sizeTypesResponse);
+
+    return res.json({
+      result: "success",
+      sizeTypes,
+    });
+  } catch (error) {
+    console.error("네이버 전체 사이즈 참고값 조회 실패:", error);
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "전체 사이즈 참고값 조회 실패",
+    });
+  }
+});
+
+app.post("/NgetSizeRegistrationProgress", async (req, res) => {
+  try {
+    const requestId = String(req.body.registrationRequestId || "");
+    if (!req.body.accName || !requestId) {
+      return res.status(400).json({
+        result: "error",
+        message: "계정명과 상품 등록 요청 번호가 필요합니다.",
+      });
+    }
+
+    const snapshot = await getNaverSizeRegistrationLockRef(req.body.accName).get();
+    if (!snapshot.exists) {
+      return res.json({ status: "waiting", completed: 0, total: 0, success: 0, failed: 0 });
+    }
+
+    const lock = snapshot.data();
+    const matchesCurrentRequest = lock.currentRequestId === requestId;
+    const matchesCompletedRequest = lock.lastCompletedRequestId === requestId;
+    if (!matchesCurrentRequest && !matchesCompletedRequest) {
+      return res.json({ status: "waiting", completed: 0, total: 0, success: 0, failed: 0 });
+    }
+
+    return res.json(lock.progress || {
+      status: matchesCompletedRequest ? "completed" : "preparing",
+      completed: 0,
+      total: 0,
+      success: 0,
+      failed: 0,
+    });
+  } catch (error) {
+    console.error("네이버 옵션별 상품등록 진행 상태 조회 실패:", error);
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "상품 등록 진행 상태 조회에 실패했습니다.",
+    });
+  }
+});
+
+app.post("/NaddSizeIndividualProducts", async (req, res) => {
+  console.log("네이버 사이즈 간편옵션 상품등록");
+
+  const registrationStartedAt = Date.now();
+  const registrationDeadlineAt = registrationStartedAt + NAVER_SIZE_REGISTRATION_BUDGET_MS;
+  let registrationLockRef = null;
+  let registrationLockRequestId = null;
+  let registrationLockClaimed = false;
+
+  try {
+    const reqData = req.body.productData;
+    const withoutColor = reqData?.colorOption?.withoutColor === true;
+
+    if (!reqData?.product?.name) {
+      return res.status(400).json({
+        result: "error",
+        message: "상품명이 필요합니다.",
+      });
+    }
+
+    if (!Array.isArray(reqData?.sizeOption?.sizes) || reqData.sizeOption.sizes.length === 0) {
+      return res.status(400).json({
+        result: "error",
+        message: "등록할 사이즈가 없습니다.",
+      });
+    }
+
+    if (
+      !withoutColor &&
+      (!Array.isArray(reqData?.colorOption?.colors) || reqData.colorOption.colors.length === 0)
+    ) {
+      return res.status(400).json({
+        result: "error",
+        message: "등록할 색상이 없습니다.",
+      });
+    }
+
+    if (!Array.isArray(reqData?.optionCombinations) || reqData.optionCombinations.length === 0) {
+      return res.status(400).json({
+        result: "error",
+        message: "등록할 옵션이 없습니다.",
+      });
+    }
+
+    if (reqData.optionCombinations.length > 500) {
+      return res.status(400).json({
+        result: "error",
+        message: "옵션은 최대 500개까지 등록할 수 있습니다.",
+      });
+    }
+
+    if (!Array.isArray(reqData?.product?.additionalImages) || reqData.product.additionalImages.length === 0) {
+      return res.status(400).json({
+        result: "error",
+        message: "상품 이미지가 필요합니다.",
+      });
+    }
+
+    if (!Array.isArray(reqData?.detailImages) || reqData.detailImages.length === 0) {
+      return res.status(400).json({
+        result: "error",
+        message: "상세 이미지가 필요합니다.",
+      });
+    }
+
+    registrationLockRequestId = String(
+      req.body.registrationRequestId || crypto.randomUUID()
+    );
+    if (registrationLockRequestId.length > 100) {
+      return res.status(400).json({
+        result: "error",
+        message: "잘못된 상품 등록 요청 번호입니다.",
+      });
+    }
+
+    const registrationClaim = await claimNaverSizeRegistration(
+      req.body.accName,
+      registrationLockRequestId
+    );
+    if (registrationClaim.status === "completed") {
+      return res.json({
+        ...registrationClaim.response,
+        duplicateRequest: true,
+      });
+    }
+    if (registrationClaim.status === "busy") {
+      return res.status(409).json({
+        result: "error",
+        code: "REGISTRATION_IN_PROGRESS",
+        message: "같은 네이버 계정에서 상품을 등록 중입니다. 완료 후 다시 시도해주세요.",
+      });
+    }
+
+    registrationLockRef = registrationClaim.lockRef;
+    registrationLockClaimed = true;
+
+    await updateNaverSizeRegistrationProgress(
+      registrationLockRef,
+      registrationLockRequestId,
+      {
+        status: "uploading-images",
+        completed: 0,
+        total: reqData.optionCombinations.length,
+        success: 0,
+        failed: 0,
+        currentOptionLabel: "",
+      }
+    );
+
+    const accData = await getNaverAccount(req.body.accName);
+    const n_id = accData.n_id;
+    const n_sk = accData.n_sk;
+
+    const accessToken = await getAccessToken(n_id, n_sk, "SELF");
+    const sellerTags = Array.isArray(reqData.tags) ? reqData.tags : [];
+    await saveKeywords(reqData.category.id, sellerTags);
+
+    const category = await NsearchCategory(reqData.category.id, accessToken.access_token);
+    const exceptionalCategories = Array.isArray(category?.exceptionalCategories)
+      ? category.exceptionalCategories
+      : [];
+
+    const uploadedDescImages = await NuploadProductImages(
+      accessToken.access_token,
+      Object.values(reqData.detailImages)
+    );
+    const detailImageUrls = uploadedDescImages.images.map((image) => image.url);
+
+    const imageFiles = reqData.product.additionalImages.map((image) => image.file);
+    const uploadedImages = await NuploadProductImages(
+      accessToken.access_token,
+      Object.values(imageFiles)
+    );
+
+    if (!uploadedImages?.images?.length) {
+      throw new Error("상품 이미지 업로드 결과가 없습니다.");
+    }
+
+    const providedNoticeType = reqData.providedNotice.productInfoProvidedNoticeType;
+    const noticeKey = getNoticeTypeString(providedNoticeType);
+    const product = reqData.product;
+    const regularPrice = parseInt(product.regularPrice, 10);
+    const salePrice = parseInt(product.price, 10);
+
+    if (!Number.isFinite(regularPrice) || !Number.isFinite(salePrice)) {
+      return res.status(400).json({
+        result: "error",
+        message: "정상가와 판매가를 숫자로 입력해주세요.",
+      });
+    }
+
+    const sizeRows = reqData.sizeOption.sizes
+      .filter((size) => size && size.usable !== false && size.label)
+      .map((size) => ({
+        label: String(size.label).trim(),
+        value: size.value,
+        measurementValue: size.measurementValue,
+      }));
+
+    const colorRows = (Array.isArray(reqData?.colorOption?.colors) ? reqData.colorOption.colors : [])
+      .filter((color) => color && color.label)
+      .map((color) => ({ label: String(color.label).trim() }));
+
+    if (sizeRows.length === 0 || (!withoutColor && colorRows.length === 0)) {
+      throw new Error("등록 가능한 옵션이 없습니다.");
+    }
+
+    const productName = String(product.name).trim();
+    const colorLabels = colorRows.map((color) => color.label);
+    const sizeLabels = sizeRows.map((size) => String(size.label).trim());
+    const findDuplicateOption = (labels) => {
+      const normalized = labels.map((label) => normalizeOptionText(label));
+      const duplicateIndex = normalized.findIndex((label, index) => normalized.indexOf(label) !== index);
+      return duplicateIndex >= 0 ? labels[duplicateIndex] : null;
+    };
+    const duplicateColor = findDuplicateOption(colorLabels);
+    const duplicateSize = findDuplicateOption(sizeLabels);
+
+    if (duplicateColor) {
+      return res.status(400).json({
+        result: "error",
+        message: `중복된 색상 옵션이 있습니다: ${duplicateColor}`,
+      });
+    }
+
+    if (duplicateSize) {
+      return res.status(400).json({
+        result: "error",
+        message: `중복된 사이즈 옵션이 있습니다: ${duplicateSize}`,
+      });
+    }
+
+    const colorLabelMap = new Map(
+      colorRows.map((color) => [normalizeOptionText(color.label), color.label])
+    );
+    const sizeLabelMap = new Map(
+      sizeRows.map((size) => [normalizeOptionText(size.label), size.label])
+    );
+    const combinationKeys = new Set();
+    const selectedCombinations = reqData.optionCombinations.map((combination) => {
+      const size = sizeLabelMap.get(normalizeOptionText(combination?.size));
+
+      if (withoutColor) {
+        if (!size) {
+          throw new Error("사이즈 옵션 목록에 없는 값이 포함되어 있습니다.");
+        }
+
+        const key = normalizeOptionText(size);
+        if (combinationKeys.has(key)) {
+          throw new Error(`중복된 사이즈 옵션이 있습니다: ${size}`);
+        }
+        combinationKeys.add(key);
+        return { size };
+      }
+
+      const color = colorLabelMap.get(normalizeOptionText(combination?.color));
+      if (!color || !size) {
+        throw new Error("색상/사이즈 조합에 옵션 목록에 없는 값이 포함되어 있습니다.");
+      }
+
+      const key = `${normalizeOptionText(color)}:${normalizeOptionText(size)}`;
+      if (combinationKeys.has(key)) {
+        throw new Error(`중복된 색상/사이즈 조합이 있습니다: ${color} / ${size}`);
+      }
+      combinationKeys.add(key);
+      return { color, size };
+    });
+
+    const usedColorKeys = new Set(
+      selectedCombinations.map((combination) => normalizeOptionText(combination.color))
+    );
+    const usedSizeKeys = new Set(
+      selectedCombinations.map((combination) => normalizeOptionText(combination.size))
+    );
+    const usedColorRows = colorRows.filter((color) =>
+      usedColorKeys.has(normalizeOptionText(color.label))
+    );
+    const usedSizeRows = sizeRows.filter((size) =>
+      usedSizeKeys.has(normalizeOptionText(size.label))
+    );
+
+    const optionProductNames = selectedCombinations.map((combination) =>
+      buildSizeRegistrationProductName(productName, combination, withoutColor)
+    );
+    const overLengthProductName = optionProductNames.find((name) => name.length > 100);
+
+    if (overLengthProductName) {
+      return res.status(400).json({
+        result: "error",
+        message: `상품명이 100자를 초과합니다: ${overLengthProductName}`,
+      });
+    }
+
+    if (regularPrice <= 0 || salePrice <= 0) {
+      return res.status(400).json({
+        result: "error",
+        message: "등록 가격이 0원 이하입니다.",
+      });
+    }
+
+    const detailContent = detailImageUrls
+      .map((imageUrl) => `<div style="text-align: center;"><img src="${imageUrl}"></div>`)
+      .join("");
+
+    const images = {
+      representativeImage: {
+        url: uploadedImages.images[0].url,
+      },
+      optionalImages: uploadedImages.images
+        .slice(1)
+        .map((image) => ({ url: image.url })),
+    };
+
+    const createProductAttributes = () => {
+      const productAttributes = [];
+
+      for (const attribute of reqData.selectedProductAttributes || []) {
+        if (attribute.attributeClassificationType === "RANGE" && attribute.selectedValue) {
+          productAttributes.push({
+            attributeSeq: parseInt(attribute.attributeSeq, 10),
+            attributeValueSeq: parseInt(attribute.selectedValue.rangeValue, 10),
+            attributeRealValue: Number(attribute.selectedValue.attributeRealValue),
+            attributeRealValueUnitCode: attribute.representativeUnitCode,
+          });
+        } else if (attribute.attributeClassificationType === "MULTI_SELECT" && Array.isArray(attribute.selectedValues)) {
+          attribute.selectedValues.forEach((value) => {
+            productAttributes.push({
+              attributeSeq: parseInt(attribute.attributeSeq, 10),
+              attributeValueSeq: value,
+            });
+          });
+        } else if (attribute.attributeClassificationType === "SINGLE_SELECT" && attribute.selectedValue) {
+          productAttributes.push({
+            attributeSeq: parseInt(attribute.attributeSeq, 10),
+            attributeValueSeq: parseInt(attribute.selectedValue, 10),
+          });
+        }
+      }
+
+      return productAttributes;
+    };
+
+    const createCertificationTargetExcludeContent = () => {
+      const certificationTargetExcludeContent = {};
+
+      if (exceptionalCategories.includes("KC_CERTIFICATION")) {
+        certificationTargetExcludeContent.kcCertifiedProductExclusionYn = "TRUE";
+      }
+      if (exceptionalCategories.includes("GREEN_PRODUCTS")) {
+        certificationTargetExcludeContent.greenCertifiedProductExclusionYn = true;
+      }
+      if (exceptionalCategories.includes("CHILD_CERTIFICATION")) {
+        certificationTargetExcludeContent.childCertifiedProductExclusionYn = true;
+      }
+
+      return certificationTargetExcludeContent;
+    };
+
+    const discountValue = regularPrice - salePrice;
+    const stockQuantity = 9999999;
+
+    const sizeTypeNo = parseInt(reqData.productSize?.sizeTypeNo, 10);
+    const sizeValueTypeNo = parseInt(reqData.productSize?.sizeValueTypeNo, 10);
+    const standardOptionGroups = withoutColor
+      ? []
+      : await getStandardOptionGroups(reqData.category.id, accessToken.access_token);
+    const registeredProducts = [];
+    const failedProducts = [];
+
+    await updateNaverSizeRegistrationProgress(
+      registrationLockRef,
+      registrationLockRequestId,
+      {
+        status: "registering",
+        completed: 0,
+        total: selectedCombinations.length,
+        success: 0,
+        failed: 0,
+        currentOptionLabel: "",
+      }
+    );
+
+    for (let index = 0; index < selectedCombinations.length; index += 1) {
+      if (Date.now() >= registrationDeadlineAt) {
+        selectedCombinations.slice(index).forEach((skippedCombination) => {
+          const skippedOptionLabel = withoutColor
+            ? skippedCombination.size
+            : `${skippedCombination.color} / ${skippedCombination.size}`;
+          failedProducts.push({
+            productName: buildSizeRegistrationProductName(
+              productName,
+              skippedCombination,
+              withoutColor
+            ),
+            baseProductName: productName,
+            option: skippedCombination,
+            optionLabel: skippedOptionLabel,
+            message: "서버 제한 시간 보호를 위해 등록하지 않았습니다.",
+          });
+        });
+        break;
+      }
+
+      const combination = selectedCombinations[index];
+      const combinationKey = getSizeRegistrationCombinationKey(combination, withoutColor);
+      const orderedCombinations = [
+        combination,
+        ...selectedCombinations.filter(
+          (optionCombination) =>
+            getSizeRegistrationCombinationKey(optionCombination, withoutColor) !== combinationKey
+        ),
+      ];
+      const orderedSizeKeys = new Set(
+        orderedCombinations.map((optionCombination) => normalizeOptionText(optionCombination.size))
+      );
+      const orderedColorKeys = new Set(
+        orderedCombinations.map((optionCombination) => normalizeOptionText(optionCombination.color))
+      );
+      const currentSizeRows = usedSizeRows.filter(
+        (size) => normalizeOptionText(size.label) === normalizeOptionText(combination.size)
+      );
+      const orderedSizeRows = usedSizeRows.filter((size) =>
+        orderedSizeKeys.has(normalizeOptionText(size.label))
+      );
+      const combinationColorRows = withoutColor
+        ? []
+        : usedColorRows.filter((color) => orderedColorKeys.has(normalizeOptionText(color.label)));
+      let optionInfo;
+      let optionMode;
+      let fallbackOptionInfo = null;
+
+      if (withoutColor) {
+        optionInfo = buildCombinationSizeOptionInfo(orderedCombinations, stockQuantity);
+        optionMode = "size-only-combination";
+      } else {
+        const standardOptionInfo = buildStandardColorSizeOptionInfo(
+          combinationColorRows,
+          orderedSizeRows,
+          orderedCombinations,
+          standardOptionGroups,
+          stockQuantity
+        );
+        optionInfo =
+          standardOptionInfo || buildCombinationColorSizeOptionInfo(orderedCombinations, stockQuantity);
+        optionMode = standardOptionInfo ? "standard" : "combination";
+        if (standardOptionInfo) {
+          fallbackOptionInfo = buildCombinationColorSizeOptionInfo(orderedCombinations, stockQuantity);
+        }
+      }
+      const registeredProductName = optionProductNames[index];
+
+      const detailAttribute = {
+        naverShoppingSearchInfo: {
+          manufacturerName: reqData.commonInfo?.manufacture || "",
+          brandName: reqData.commonInfo?.brand || "",
+        },
+        afterServiceInfo: {
+          afterServiceTelephoneNumber: reqData.asInfo?.asNumber || "070-7954-3996",
+          afterServiceGuideContent: reqData.asInfo?.asDescription || "톡톡으로 문의주세요",
+        },
+        purchaseQuantityInfo: {
+          maxPurchaseQuantityPerOrder: 1,
+          maxPurchaseQuantityPerId: 1000000,
+        },
+        originAreaInfo: {
+          originAreaCode: "03",
+        },
+        minorPurchasable: true,
+        optionInfo,
+        productInfoProvidedNotice: {
+          productInfoProvidedNoticeType: providedNoticeType,
+          [noticeKey]: getNoti(providedNoticeType),
+        },
+        productAttributes: createProductAttributes(),
+        productCertificationInfos: null,
+        certificationTargetExcludeContent: createCertificationTargetExcludeContent(),
+        seoInfo: {
+          sellerTags: sellerTags.map((tag) => ({ text: tag })),
+        },
+      };
+
+      const productSizeAttributes = currentSizeRows
+        .map((size) => ({
+          name: String(size.label),
+          value: Number(size.measurementValue),
+        }))
+        .filter((size) => Number.isFinite(size.value));
+
+      if (
+        Number.isFinite(sizeTypeNo) &&
+        Number.isFinite(sizeValueTypeNo) &&
+        productSizeAttributes.length > 0
+      ) {
+        detailAttribute.productSize = {
+          sizeTypeNo,
+          sizeAttributes: productSizeAttributes.map((size) => ({
+            name: size.name,
+            sizeValues: [
+              {
+                sizeValueTypeNo,
+                value: size.value,
+              },
+            ],
+          })),
+        };
+      }
+
+      const requestData = {
+        originProduct: {
+          statusType: "SALE",
+          saleType: "NEW",
+          leafCategoryId: reqData.category.id,
+          name: registeredProductName,
+          detailContent,
+          images,
+          saleStartDate: new Date().toISOString(),
+          saleEndDate: new Date("2099-12-31").toISOString(),
+          salePrice: regularPrice,
+          stockQuantity,
+          deliveryInfo: reqData.deliveryInfo,
+          detailAttribute,
+        },
+        smartstoreChannelProduct: {
+          channelProductName: registeredProductName,
+          naverShoppingRegistration: true,
+          channelProductDisplayStatusType: "ON",
+        },
+      };
+
+      if (discountValue > 0) {
+        requestData.originProduct.customerBenefit = {
+          immediateDiscountPolicy: {
+            discountMethod: {
+              value: discountValue,
+              unitType: "WON",
+            },
+          },
+        };
+      }
+
+      const optionLabel = withoutColor
+        ? combination.size
+        : `${combination.color} / ${combination.size}`;
+
+      await updateNaverSizeRegistrationProgress(
+        registrationLockRef,
+        registrationLockRequestId,
+        {
+          status: "registering",
+          completed: index,
+          total: selectedCombinations.length,
+          success: registeredProducts.length,
+          failed: failedProducts.length,
+          currentOptionLabel: optionLabel,
+        }
+      );
+
+      try {
+        let responseData;
+        let registeredOptionMode = optionMode;
+
+        try {
+          responseData = await registerNaverProductWithRetry(
+            requestData,
+            accessToken.access_token,
+            3,
+            registrationDeadlineAt
+          );
+        } catch (registrationError) {
+          if (!fallbackOptionInfo) throw registrationError;
+
+          console.error(
+            "네이버 표준옵션 상품등록 실패, 조합형 옵션으로 재시도:",
+            optionLabel,
+            registrationError
+          );
+          requestData.originProduct.detailAttribute.optionInfo = fallbackOptionInfo;
+          responseData = await registerNaverProductWithRetry(
+            requestData,
+            accessToken.access_token,
+            3,
+            registrationDeadlineAt
+          );
+          registeredOptionMode = "combination-fallback";
+        }
+
+        registeredProducts.push({
+          productName: registeredProductName,
+          baseProductName: productName,
+          option: combination,
+          optionLabel,
+          optionMode: registeredOptionMode,
+          response: responseData,
+        });
+      } catch (registrationError) {
+        console.error("네이버 옵션별 상품등록 실패:", optionLabel, registrationError);
+        failedProducts.push({
+          productName: registeredProductName,
+          baseProductName: productName,
+          option: combination,
+          optionLabel,
+          message: registrationError.message || "네이버 상품 등록 실패",
+        });
+      }
+
+      await updateNaverSizeRegistrationProgress(
+        registrationLockRef,
+        registrationLockRequestId,
+        {
+          status: "registering",
+          completed: index + 1,
+          total: selectedCombinations.length,
+          success: registeredProducts.length,
+          failed: failedProducts.length,
+          currentOptionLabel: optionLabel,
+        }
+      );
+
+      if (index < selectedCombinations.length - 1) {
+        if (Date.now() + 700 >= registrationDeadlineAt) continue;
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    const responsePayload = {
+      result:
+        failedProducts.length === 0
+          ? "success"
+          : registeredProducts.length > 0
+            ? "partial"
+            : "error",
+      message:
+        failedProducts.length === 0
+          ? `${productName} 옵션별 상품 ${registeredProducts.length}개가 등록되었습니다.`
+          : `${productName} 옵션별 상품 ${registeredProducts.length}개 등록, ${failedProducts.length}개 실패했습니다.`,
+      registeredCount: registeredProducts.length,
+      optionCount: selectedCombinations.length,
+      failedCount: failedProducts.length,
+      registeredProducts,
+      failedProducts,
+    };
+
+    await updateNaverSizeRegistrationProgress(
+      registrationLockRef,
+      registrationLockRequestId,
+      {
+        status: failedProducts.length === 0 ? "completed" : "completed-with-errors",
+        completed: selectedCombinations.length,
+        total: selectedCombinations.length,
+        success: registeredProducts.length,
+        failed: failedProducts.length,
+        currentOptionLabel: "",
+      }
+    );
+
+    await completeNaverSizeRegistration(
+      registrationLockRef,
+      registrationLockRequestId,
+      responsePayload
+    );
+    registrationLockClaimed = false;
+
+    return res.status(registeredProducts.length === 0 ? 502 : 200).json(responsePayload);
+  } catch (error) {
+    console.error("네이버 사이즈 간편옵션 상품등록 오류:", error);
+    if (registrationLockClaimed && registrationLockRef && registrationLockRequestId) {
+      try {
+        await updateNaverSizeRegistrationProgress(
+          registrationLockRef,
+          registrationLockRequestId,
+          {
+            status: "error",
+            message: error.message || "상품 등록 중 오류가 발생했습니다.",
+          }
+        );
+      } catch (progressError) {
+        console.error("네이버 옵션별 상품등록 오류 상태 저장 실패:", progressError);
+      }
+    }
+    return res.status(500).json({
+      result: "error",
+      message: error.message || "사이즈 간편옵션 상품 등록 중 오류가 발생했습니다.",
+    });
+  } finally {
+    if (registrationLockClaimed && registrationLockRef && registrationLockRequestId) {
+      try {
+        await releaseNaverSizeRegistration(
+          registrationLockRef,
+          registrationLockRequestId
+        );
+      } catch (releaseError) {
+        console.error("네이버 사이즈 상품 등록 잠금 해제 실패:", releaseError);
+      }
     }
   }
 });

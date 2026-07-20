@@ -10,6 +10,9 @@ const CupangProductRegister = React.lazy(
 const NaverProductRegister = React.lazy(
   () => import('./views/naver/product-register/ProductRegister'),
 )
+const NaverSizeRegister = React.lazy(
+  () => import('./views/naver/size-register/SizeRegister'),
+)
 
 // Image
 const ImageConvert = React.lazy(() => import('./views/image/convert/ImageConvert'))
@@ -28,6 +31,7 @@ const routes = [
   { path: '/naver', name: '네이버', element: NaverProductRegister, exact: true },
   // { path: '/naver/product-list', name: '상품목록', element: NaverProductList },
   { path: '/naver/product-register', name: '상품등록', element: NaverProductRegister },
+  { path: '/naver/size-register', name: '상품등록-사이즈', element: NaverSizeRegister },
   { path: '/image', name: '이미지', element: ImageConvert, exact: true },
   { path: '/image/convert', name: '이미지합성', element: ImageConvert },
   { path: '/margin', name: '마진', element: MarginCalculator, exact: true },

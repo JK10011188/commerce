@@ -9,12 +9,18 @@ import CIcon from '@coreui/icons-react'
 import { cilCloudUpload, cilPlus, cilTrash } from '@coreui/icons'
 import { useProductStore } from '../../../../stores/useNaverStore'
 
-const ProductImageUploader = ({ productId }) => {
+const ProductImageUploader = ({
+  productId,
+  images: controlledImages,
+  setImages: setControlledImages,
+  allowMultiple = true,
+}) => {
   const fileInputRef = useRef(null);
   const { products, setProduct, mainProduct, setMainProduct } = useProductStore();
   const [dragActive, setDragActive] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-  const isMainProduct = productId === mainProduct?.id;
+  const isControlled = Array.isArray(controlledImages) && typeof setControlledImages === 'function';
+  const isMainProduct = isControlled ? allowMultiple : productId === mainProduct?.id;
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -28,7 +34,26 @@ const ProductImageUploader = ({ productId }) => {
   }, [selectedImage]);
 
   const product = products.find(p => p.id === productId);
-  const images = product.additionalImages || [];
+  const images = isControlled ? controlledImages : (product?.additionalImages || []);
+  const updateImages = (nextImages) => {
+    const normalizedImages = nextImages.map((img, index) => ({
+      ...img,
+      order: index + 1,
+      isMain: index === 0,
+    }));
+
+    if (isControlled) {
+      setControlledImages(normalizedImages);
+      return;
+    }
+
+    if (product) {
+      setProduct({
+        ...product,
+        additionalImages: normalizedImages,
+      });
+    }
+  };
 
   const handleImageUpload = async (files) => {
     if (!files || files.length === 0) return;
@@ -76,11 +101,7 @@ const ProductImageUploader = ({ productId }) => {
     }
 
     if (newImages.length > 0) {
-      const product = products.find(p => p.id === productId);
-      setProduct({
-        ...product,
-        additionalImages: [...images, ...newImages]
-      });
+      updateImages([...images, ...newImages]);
       setDragActive(false);
     }
   };
@@ -90,21 +111,7 @@ const ProductImageUploader = ({ productId }) => {
     if (imageToRemove) {
       URL.revokeObjectURL(imageToRemove.preview);
     }
-    const updatedImages = images
-      .filter(img => img.id !== imageId)
-      .map((img, index) => ({ ...img, order: index + 1 }));
-    
-    // 첫 번째 이미지를 대표 이미지로 설정
-    const reorderedImages = updatedImages.map((img, index) => ({
-      ...img,
-      isMain: index === 0
-    }));
-    
-    const product = products.find(p => p.id === productId);
-    setProduct({
-      ...product,
-      additionalImages: reorderedImages
-    });
+    updateImages(images.filter(img => img.id !== imageId));
     
     if (selectedImage === imageId) {
       setSelectedImage(null);
@@ -124,14 +131,7 @@ const ProductImageUploader = ({ productId }) => {
           return img;
         }).sort((a, b) => a.order - b.order);
 
-        // 대표 이미지와 다른 이미지가 바뀌면 해당 이미지가 대표가 됨
-        const reorderedImages = updatedImages.map(img => ({
-          ...img,
-          isMain: img.order === 1
-        }));
-
-        const product = products.find(p => p.id === productId);
-        setProduct({...product, additionalImages: reorderedImages});
+        updateImages(updatedImages);
       }
       setSelectedImage(null);
     } else if (selectedImage === imageId) {
@@ -263,4 +263,4 @@ const ProductImageUploader = ({ productId }) => {
   );
 };
 
-export default ProductImageUploader; 
+export default ProductImageUploader;

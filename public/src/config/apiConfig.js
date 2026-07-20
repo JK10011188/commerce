@@ -85,8 +85,14 @@ export const API_ENDPOINTS = {
     SEARCH_TAG_SUGGESTIONS: '/getRecommendTags',
     SEARCH_TAG_RESTRICTIONS: '/getTagRestrictions',
     SEARCH_PRODUCT_ATTRIBUTES: '/NsearchAttribute',
+    SEARCH_STANDARD_OPTIONS: '/NsearchStandardOptions',
     SEARCH_PRODUCT_PROVIDED_NOTICE: '/getProductProvidedNotice',
-    REGISTER_PRODUCT: '/NaddProducts',
+      REGISTER_PRODUCT: '/NaddProducts',
+      REGISTER_SIZE_PRODUCT: '/NaddSizeIndividualProducts',
+      GET_SIZE_REGISTRATION_PROGRESS: '/NgetSizeRegistrationProgress',
+    SEARCH_SIZE_TYPES: '/NsearchSizeTypes',
+    SEARCH_SIZE_TYPE_DETAIL: '/NsearchSizeTypeDetail',
+    SEARCH_ALL_SIZE_VALUES: '/NsearchAllSizeValues',
   }
 };
 

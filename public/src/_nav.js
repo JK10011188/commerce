@@ -42,6 +42,11 @@ const _nav = [
         name: '상품등록',
         to: '/naver/product-register',
       },
+      {
+        component: CNavItem,
+        name: '상품등록-사이즈',
+        to: '/naver/size-register',
+      },
     ],
   },
   {

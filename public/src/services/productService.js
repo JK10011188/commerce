@@ -81,6 +81,10 @@ export const productService = {
     return apiService.post(API_ENDPOINTS.NAVER.SEARCH_PRODUCT_ATTRIBUTES, data);  
   },
 
+  getNaverStandardOptions: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.SEARCH_STANDARD_OPTIONS, data);
+  },
+
   /**
    * 상품정보제공고시 가져오기
    * @returns {Promise} 상품정보제공고시 목록
@@ -96,6 +100,26 @@ export const productService = {
    */
   registerProduct: (data) => {
     return apiService.post(API_ENDPOINTS.NAVER.REGISTER_PRODUCT, data);  
+  },
+
+  registerSizeProduct: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.REGISTER_SIZE_PRODUCT, data, { timeout: 530000 });
+  },
+
+  getSizeRegistrationProgress: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.GET_SIZE_REGISTRATION_PROGRESS, data);
+  },
+
+  getNaverSizeTypes: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.SEARCH_SIZE_TYPES, data);
+  },
+
+  getNaverSizeTypeDetail: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.SEARCH_SIZE_TYPE_DETAIL, data);
+  },
+
+  getNaverAllSizeValues: (data) => {
+    return apiService.post(API_ENDPOINTS.NAVER.SEARCH_ALL_SIZE_VALUES, data);
   },
 };
 

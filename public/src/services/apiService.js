@@ -57,7 +57,8 @@ export const apiRequest = async (endpoint, options = {}) => {
     logApiCall(finalOptions.method || 'GET', url, finalOptions.body);
     
     // API 요청 전송 (타임아웃 처리)
-    const response = await withTimeout(fetch(url, finalOptions));
+    const { timeout = API_TIMEOUT, ...fetchOptions } = finalOptions;
+    const response = await withTimeout(fetch(url, fetchOptions), timeout);
     
     // 응답 처리
     if (!response.ok) {
@@ -202,4 +203,4 @@ export const apiService = {
   uploadFile
 };
 
-export default apiService; 
+export default apiService;

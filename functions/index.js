@@ -4009,7 +4009,7 @@ app.post("/NaddSizeIndividualProducts", async (req, res) => {
     };
 
     const discountValue = regularPrice - salePrice;
-    const stockQuantity = 9999999;
+    const maxNaverStockQuantity = 99999999;
 
     const sizeTypeNo = parseInt(reqData.productSize?.sizeTypeNo, 10);
     const sizeValueTypeNo = parseInt(reqData.productSize?.sizeValueTypeNo, 10);
@@ -4077,6 +4077,10 @@ app.post("/NaddSizeIndividualProducts", async (req, res) => {
       const combinationColorRows = withoutColor
         ? []
         : usedColorRows.filter((color) => orderedColorKeys.has(normalizeOptionText(color.label)));
+      const stockQuantity = Math.max(
+        1,
+        Math.floor(maxNaverStockQuantity / Math.max(orderedCombinations.length, 1))
+      );
       let optionInfo;
       let optionMode;
       let fallbackOptionInfo = null;
